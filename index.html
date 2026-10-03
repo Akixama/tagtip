@@ -3,168 +3,69 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="TagTip turns an X reply into a controlled USDC tip." />
-    <title>TagTip — send money with a reply</title>
+    <meta name="description" content="TagTip turns an X reply into a safe, claimable USDC tip." />
+    <title>TagTip — money, at the speed of a reply</title>
     <link rel="stylesheet" href="style.css" />
   </head>
-  <body>
-    <div class="page-shell">
+  <body class="site-body">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <aside class="side-rail" aria-label="Primary navigation">
+      <a class="rail-brand" href="index.html" aria-label="TagTip home"><span class="brand-sigil" aria-hidden="true">T</span><span>TagTip</span></a>
+      <nav>
+        <a class="rail-link active" href="index.html"><span class="nav-icon">⌂</span>Overview</a>
+        <a class="rail-link" href="send.html"><span class="nav-icon">↗</span>Send a tip</a>
+        <a class="rail-link" href="claim.html"><span class="nav-icon">↓</span>Claim a tip</a>
+      </nav>
+      <div class="rail-bottom">
+        <div class="rail-status"><i></i><span>Prototype</span><small>No real funds</small></div>
+        <a href="send.html" class="rail-profile"><span class="mini-avatar">Y</span><span><strong>@you</strong><small>Demo sender</small></span><b>›</b></a>
+      </div>
+    </aside>
+    <div class="app-frame">
       <header class="topbar">
-        <a class="brand" href="#top" aria-label="TagTip home">
-          <span class="brand-mark" aria-hidden="true">↗</span>
-          <span>TagTip</span>
-        </a>
-        <div class="topbar-actions">
-          <span class="pilot-pill"><span></span> Local prototype</span>
-          <button class="quiet-button" id="resetButton" type="button">Reset demo</button>
-        </div>
+        <a class="mobile-brand" href="index.html"><span class="brand-sigil">T</span>TagTip</a>
+        <div class="route-title"><span class="route-dot"></span>USDC on Solana <em>· simulated</em></div>
+        <nav class="top-actions" aria-label="Quick actions"><a class="button ghost" href="claim.html">Claim</a><a class="button light" href="send.html">Open sender app <span>↗</span></a></nav>
       </header>
-
-      <main id="top">
-        <section class="hero">
+      <main id="main">
+        <section class="landing-hero content-bound">
           <div class="hero-copy">
             <p class="eyebrow">MONEY, AT THE SPEED OF A REPLY</p>
-            <h1>Send money.<br /><span>Just tag them.</span></h1>
-            <p class="hero-summary">
-              Turn a simple X command into a controlled USDC tip. You choose the budget;
-              the bot can never spend beyond it.
-            </p>
-            <div class="promise-row" aria-label="Product promises">
-              <span>No custom contract</span>
-              <span>Revocable budget</span>
-              <span>Capped fees</span>
-            </div>
+            <h1>Tip anyone.<br /><span>Right where they post.</span></h1>
+            <p class="lede">Reply with a command. TagTip checks your rules, holds the tip for the right X account, and gives the recipient a clean path to claim it.</p>
+            <div class="hero-actions"><a class="button light large" href="send.html">Try the sender demo <span>↗</span></a><a class="text-link" href="#how-it-works">See how it moves <span>↓</span></a></div>
+            <div class="trust-line"><span>0.5% fee</span><i></i><span>$1 maximum</span><i></i><span>Revocable budget</span></div>
           </div>
-
-          <div class="proof-card" aria-label="Interactive product demo">
-            <div class="proof-head">
-              <div>
-                <p class="micro-label">LIVE PRODUCT PROOF</p>
-                <h2>Try the full loop</h2>
-              </div>
-              <div class="network-status"><i></i> Test mode</div>
-            </div>
-
-            <ol class="stepper" aria-label="Setup progress">
-              <li class="step active" id="stepIdentity">
-                <span>1</span>
-                <div><strong>Identity</strong><small id="identityState">Not linked</small></div>
-              </li>
-              <li class="step" id="stepBudget">
-                <span>2</span>
-                <div><strong>Budget</strong><small id="budgetState">Not approved</small></div>
-              </li>
-              <li class="step" id="stepCommand">
-                <span>3</span>
-                <div><strong>Command</strong><small id="commandState">Waiting</small></div>
-              </li>
-            </ol>
-
-            <div class="setup-action" id="setupAction">
-              <div>
-                <p class="setup-title">Link your demo identity</p>
-                <p class="setup-description">Simulates connecting an X account. No API request is made.</p>
-              </div>
-              <button class="primary-button" id="setupButton" type="button">Link @you</button>
-            </div>
-
-            <div class="command-panel is-hidden" id="commandPanel">
-              <div class="command-meta">
-                <div class="avatar" aria-hidden="true">Y</div>
-                <div><strong>You</strong><span>@you</span></div>
-                <span class="sample-label">Sample post</span>
-              </div>
-              <label for="commandInput">Tip command</label>
-              <div class="command-input-row">
-                <input id="commandInput" value="@TagTip send $5 to @mara" spellcheck="false" />
-                <button class="primary-button" id="runButton" type="button">Run test</button>
-              </div>
-              <p class="input-help">Try an amount over $10 to see the safety limit block it.</p>
-            </div>
-
-            <div class="receipt is-hidden" id="receipt" role="status" aria-live="polite">
-              <div class="receipt-icon" id="receiptIcon">✓</div>
-              <div class="receipt-copy">
-                <p class="micro-label" id="receiptLabel">TEST PAYMENT APPROVED</p>
-                <h3 id="receiptTitle">$5.00 sent to @mara</h3>
-                <p id="receiptReason">Within your budget and policy.</p>
-              </div>
-              <dl id="receiptDetails">
-                <div><dt>Tip</dt><dd id="tipAmount">$5.00</dd></div>
-                <div><dt>Service fee</dt><dd id="feeAmount">$0.03</dd></div>
-                <div><dt>Budget left</dt><dd id="budgetLeft">$19.97</dd></div>
-              </dl>
-            </div>
+          <div class="route-portrait" aria-label="From a public reply to a private claim">
+            <span class="portrait-label">A TIP IN FLIGHT</span><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+            <article class="floating-ticket sender-ticket"><span class="mini-avatar">Y</span><div><small>@you replied</small><strong>@TagTip send $5 to @mara</strong></div><span class="ticket-state">Sent</span></article>
+            <div class="route-spine"><span></span><b>↓</b></div>
+            <article class="floating-ticket claim-ticket"><span class="money-mark">$</span><div><small>Ready for @mara</small><strong>$5.00 USDC</strong></div><span class="ticket-state ready">Claim</span></article>
+            <p class="portrait-caption"><span class="secure-dot"></span>The recipient never needs an account before the tip arrives.</p>
           </div>
         </section>
-
-        <section class="workspace" aria-labelledby="controlHeading">
-          <div class="workspace-copy">
-            <p class="eyebrow">YOUR MONEY, YOUR BOUNDARIES</p>
-            <h2 id="controlHeading">The bot gets a budget.<br />Not your wallet.</h2>
-            <p>
-              This prototype makes the safety model visible before we connect real wallets or X.
-              Every command is checked against the same simple rules.
-            </p>
-          </div>
-
-          <div class="control-surface">
-            <div class="control-head">
-              <div>
-                <p class="micro-label">TEST POLICY</p>
-                <h3>Spending controls</h3>
-              </div>
-              <span class="status-badge" id="botStatus">Not ready</span>
-            </div>
-            <div class="budget-readout">
-              <div><span>Available budget</span><strong id="budgetReadout">$0.00</strong></div>
-              <div><span>Spent today</span><strong id="spentReadout">$0.00</strong></div>
-            </div>
-            <div class="policy-sentence">
-              Allow tips up to <strong>$10</strong>, stop at <strong>$25/day</strong>, and charge
-              <strong>0.5%, capped at $1</strong>.
-            </div>
-            <div class="control-actions">
-              <button class="secondary-button" id="pauseButton" type="button" disabled>Pause bot</button>
-              <button class="danger-button" id="revokeButton" type="button" disabled>Revoke access</button>
-            </div>
+        <section class="principle-strip content-bound" aria-label="How TagTip is different">
+          <div><span>01 / SENDER</span><p>Set a budget once. Tip from X until you pause it.</p></div>
+          <div><span>02 / TAGTIP</span><p>Validate every command and cap the fee automatically.</p></div>
+          <div><span>03 / RECIPIENT</span><p>Verify the tagged account, then claim to a wallet.</p></div>
+        </section>
+        <section class="motion-section content-bound" id="how-it-works">
+          <div class="section-intro"><p class="eyebrow">12 SECONDS, END TO END</p><h2>One reply.<br /><span>One clean route.</span></h2><p>The two sides stay separate: senders control money from their workspace; recipients only see what they need to claim.</p></div>
+          <div class="motion-stage" aria-label="Animated explanation of how TagTip works">
+            <div class="motion-topline"><span>HOW IT WORKS</span><span class="motion-clock"><i></i>12 sec loop</span></div><div class="motion-grid" aria-hidden="true"></div>
+            <div class="motion-scene scene-command"><p class="scene-index">01 / REPLY</p><div class="post-shell"><div class="post-author"><span class="mini-avatar">Y</span><p><strong>You</strong><small>@you · now</small></p></div><div class="typed-command">@TagTip send <b>$5</b> to <b>@mara</b><span class="cursor"></span></div></div></div>
+            <div class="motion-scene scene-check"><p class="scene-index">02 / CHECK</p><div class="policy-scan"><span>Command recognized</span><span class="scan-pass">Pass</span><span>Inside daily limit</span><span class="scan-pass">Pass</span><span>Budget available</span><span class="scan-pass">Pass</span></div></div>
+            <div class="motion-scene scene-route"><p class="scene-index">03 / ROUTE</p><div class="money-route"><div><span class="mini-avatar">Y</span><small>@you</small></div><div class="route-line"><i></i><b>$5</b></div><div><span class="mini-avatar recipient">M</span><small>@mara</small></div></div></div>
+            <div class="motion-scene scene-ready"><p class="scene-index">04 / READY</p><div class="claim-ready"><span class="check-ring">✓</span><p><strong>$5.00 is ready</strong><small>@mara can verify and claim whenever they are ready.</small></p></div></div>
+            <div class="motion-progress"><span></span></div>
           </div>
         </section>
-
-        <section class="activity-section" aria-labelledby="activityHeading">
-          <div>
-            <p class="eyebrow">CLEAR BY DEFAULT</p>
-            <h2 id="activityHeading">Every command leaves a receipt.</h2>
-          </div>
-          <div class="activity-window">
-            <div class="activity-header">
-              <span>Recent activity</span><span>Sample data</span>
-            </div>
-            <ul class="activity-list" id="activityList">
-              <li class="empty-activity">Complete setup and run your first test command.</li>
-            </ul>
-          </div>
+        <section class="split-doors content-bound" aria-label="Choose your side">
+          <a class="door sender-door" href="send.html"><span class="door-number">01</span><div><p class="eyebrow">FOR SENDERS</p><h2>Set the boundary.<br />Then just reply.</h2><p>Approve a test budget, run a command, inspect the receipt, or revoke access.</p></div><span class="door-arrow">↗</span></a>
+          <a class="door claim-door" href="claim.html"><span class="door-number">02</span><div><p class="eyebrow">FOR RECIPIENTS</p><h2>Someone tagged you.<br />The money waits.</h2><p>Verify the tagged X identity and choose where the tip should go.</p></div><span class="door-arrow">↗</span></a>
         </section>
       </main>
-
-      <footer>
-        <span>TagTip is a working name.</span>
-        <span>Prototype only · no real funds move</span>
-      </footer>
+      <footer class="site-footer content-bound"><span>TagTip <em>· working name</em></span><span>Local prototype · no real funds move</span></footer>
     </div>
-
-    <dialog id="revokeDialog">
-      <form method="dialog">
-        <p class="micro-label">REVOKE TEST ACCESS</p>
-        <h2>Stop the bot completely?</h2>
-        <p>This clears the demo allowance. A real user would sign a wallet transaction to revoke it.</p>
-        <div class="dialog-actions">
-          <button class="secondary-button" value="cancel">Keep active</button>
-          <button class="danger-button" id="confirmRevoke" value="confirm">Revoke access</button>
-        </div>
-      </form>
-    </dialog>
-
-    <script type="module" src="src/app.js"></script>
   </body>
 </html>

@@ -1,93 +1,33 @@
-import { evaluateTip, money, parseTipCommand } from "./core.js";
+import { money } from "./core.js";
 
-const initialState = () => ({
-  identityLinked: false,
-  budgetApproved: false,
-  budget: 0,
-  spentToday: 0,
-  active: false,
-  setupStage: "identity",
-  activities: [],
-});
-
-let state = initialState();
-
+let state;
 const $ = (selector) => document.querySelector(selector);
 const elements = {
-  setupButton: $("#setupButton"),
-  setupAction: $("#setupAction"),
-  setupTitle: $(".setup-title"),
-  setupDescription: $(".setup-description"),
-  commandPanel: $("#commandPanel"),
-  commandInput: $("#commandInput"),
-  runButton: $("#runButton"),
-  receipt: $("#receipt"),
-  receiptIcon: $("#receiptIcon"),
-  receiptLabel: $("#receiptLabel"),
-  receiptTitle: $("#receiptTitle"),
-  receiptReason: $("#receiptReason"),
-  receiptDetails: $("#receiptDetails"),
-  tipAmount: $("#tipAmount"),
-  feeAmount: $("#feeAmount"),
-  budgetLeft: $("#budgetLeft"),
-  identityState: $("#identityState"),
-  budgetState: $("#budgetState"),
-  commandState: $("#commandState"),
-  stepIdentity: $("#stepIdentity"),
-  stepBudget: $("#stepBudget"),
-  stepCommand: $("#stepCommand"),
-  budgetReadout: $("#budgetReadout"),
-  spentReadout: $("#spentReadout"),
-  botStatus: $("#botStatus"),
-  pauseButton: $("#pauseButton"),
-  revokeButton: $("#revokeButton"),
-  resetButton: $("#resetButton"),
-  activityList: $("#activityList"),
-  revokeDialog: $("#revokeDialog"),
-  confirmRevoke: $("#confirmRevoke"),
+  setupButton: $("#setupButton"), setupAction: $("#setupAction"), setupTitle: $(".setup-title"), setupDescription: $(".setup-description"),
+  commandPanel: $("#commandPanel"), lockedCompose: $("#lockedCompose"), commandInput: $("#commandInput"), runButton: $("#runButton"),
+  receipt: $("#receipt"), receiptIcon: $("#receiptIcon"), receiptLabel: $("#receiptLabel"), receiptTitle: $("#receiptTitle"),
+  receiptReason: $("#receiptReason"), receiptDetails: $("#receiptDetails"), tipAmount: $("#tipAmount"), feeAmount: $("#feeAmount"),
+  budgetLeft: $("#budgetLeft"), identityState: $("#identityState"), budgetState: $("#budgetState"), commandState: $("#commandState"),
+  stepIdentity: $("#stepIdentity"), stepBudget: $("#stepBudget"), stepCommand: $("#stepCommand"), budgetReadout: $("#budgetReadout"),
+  spentReadout: $("#spentReadout"), botStatus: $("#botStatus"), pauseButton: $("#pauseButton"), revokeButton: $("#revokeButton"),
+  resetButton: $("#resetButton"), activityList: $("#activityList"), revokeDialog: $("#revokeDialog"), confirmRevoke: $("#confirmRevoke"),
+  claimLink: $("#claimLink"),
 };
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    method: options.method || "GET",
+    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const payload = await response.json();
+  if (!response.ok && !payload.state) throw new Error(payload.reason || "Request failed.");
+  return payload;
+}
 
 function setStep(element, mode) {
   element.classList.remove("active", "complete");
   if (mode) element.classList.add(mode);
-}
-
-function render() {
-  elements.identityState.textContent = state.identityLinked ? "@you linked" : "Not linked";
-  elements.budgetState.textContent = state.budgetApproved ? `${money(state.budget)} approved` : "Not approved";
-  elements.commandState.textContent = state.activities.length ? "Tested" : "Waiting";
-
-  setStep(elements.stepIdentity, state.identityLinked ? "complete" : "active");
-  setStep(elements.stepBudget, state.identityLinked ? (state.budgetApproved ? "complete" : "active") : null);
-  setStep(elements.stepCommand, state.budgetApproved ? "active" : null);
-
-  elements.budgetReadout.textContent = money(state.budget);
-  elements.spentReadout.textContent = money(state.spentToday);
-  elements.botStatus.textContent = !state.budgetApproved ? "Not ready" : state.active ? "Active" : "Paused";
-  elements.botStatus.className = `status-badge ${state.active ? "ready" : ""}`;
-  elements.pauseButton.disabled = !state.budgetApproved;
-  elements.revokeButton.disabled = !state.budgetApproved;
-  elements.pauseButton.textContent = state.active ? "Pause bot" : "Resume bot";
-
-  elements.commandPanel.classList.toggle("is-hidden", !state.budgetApproved);
-
-  if (state.setupStage === "identity") {
-    elements.setupTitle.textContent = "Link your demo identity";
-    elements.setupDescription.textContent = "Simulates connecting an X account. No API request is made.";
-    elements.setupButton.textContent = "Link @you";
-  } else if (state.setupStage === "budget") {
-    elements.setupTitle.textContent = "Approve a $25 test budget";
-    elements.setupDescription.textContent = "Simulates a capped token allowance. No wallet permission is requested.";
-    elements.setupButton.textContent = "Approve test budget";
-  } else {
-    elements.setupAction.classList.add("is-complete");
-    elements.setupTitle.textContent = "TipBot is ready";
-    elements.setupDescription.textContent = "Run a sample command or test a policy block.";
-    elements.setupButton.textContent = "Ready";
-    elements.setupButton.disabled = true;
-  }
-
-  renderActivities();
 }
 
 function renderActivities() {
@@ -95,112 +35,82 @@ function renderActivities() {
     elements.activityList.innerHTML = '<li class="empty-activity">Complete setup and run your first test command.</li>';
     return;
   }
-
-  elements.activityList.innerHTML = state.activities
-    .map(
-      (activity) => `
-        <li>
-          <span class="activity-icon ${activity.ok ? "success" : "blocked"}">${activity.ok ? "✓" : "!"}</span>
-          <div><strong>${activity.title}</strong><small>${activity.detail}</small></div>
-          <time>${activity.time}</time>
-        </li>`,
-    )
-    .join("");
+  elements.activityList.innerHTML = state.activities.map((item) => `<li><span class="activity-icon ${item.ok ? "success" : "blocked"}">${item.ok ? "✓" : "!"}</span><div><strong>${item.title}</strong><small>${item.detail}</small></div><time>${item.time}</time></li>`).join("");
 }
 
-function showReceipt({ ok, title, reason, amount = 0, fee = 0 }) {
+function render() {
+  const sender = state.sender;
+  elements.identityState.textContent = sender.identityLinked ? `${sender.handle} linked` : "Not linked";
+  elements.budgetState.textContent = sender.budgetApproved ? `${money(sender.budget)} available` : "Not approved";
+  elements.commandState.textContent = state.tips.length ? `${state.tips.length} created` : "Waiting";
+  setStep(elements.stepIdentity, sender.identityLinked ? "complete" : "active");
+  setStep(elements.stepBudget, sender.identityLinked ? (sender.budgetApproved ? "complete" : "active") : null);
+  setStep(elements.stepCommand, sender.budgetApproved ? "active" : null);
+  elements.budgetReadout.textContent = money(sender.budget);
+  elements.spentReadout.textContent = money(sender.spentToday);
+  elements.botStatus.textContent = !sender.budgetApproved ? "Not ready" : sender.active ? "Active" : "Paused";
+  elements.botStatus.className = `status-badge ${sender.active ? "ready" : ""}`;
+  elements.pauseButton.disabled = !sender.budgetApproved;
+  elements.revokeButton.disabled = !sender.budgetApproved;
+  elements.pauseButton.textContent = sender.active ? "Pause bot" : "Resume bot";
+  elements.commandPanel.classList.toggle("is-hidden", !sender.budgetApproved);
+  elements.lockedCompose.classList.toggle("is-hidden", sender.budgetApproved);
+
+  if (sender.setupStage === "identity") {
+    elements.setupAction.classList.remove("is-complete");
+    elements.setupButton.disabled = false;
+    elements.setupTitle.textContent = "Link your demo identity";
+    elements.setupDescription.textContent = "Simulates connecting an X account. No API request is made.";
+    elements.setupButton.textContent = `Link ${sender.handle}`;
+  } else if (sender.setupStage === "budget") {
+    elements.setupAction.classList.remove("is-complete");
+    elements.setupButton.disabled = false;
+    elements.setupTitle.textContent = "Fund a $25 test balance";
+    elements.setupDescription.textContent = "Creates a server-side demo balance. No wallet is charged.";
+    elements.setupButton.textContent = "Fund test balance";
+  } else {
+    elements.setupAction.classList.add("is-complete");
+    elements.setupTitle.textContent = "TipBot is ready";
+    elements.setupDescription.textContent = "Tips created here now appear on the recipient claim page.";
+    elements.setupButton.textContent = "Ready";
+    elements.setupButton.disabled = true;
+  }
+  renderActivities();
+}
+
+function showReceipt({ ok, title, reason, amount = 0, fee = 0, id = "" }) {
   elements.receipt.classList.remove("is-hidden", "blocked");
   elements.receipt.classList.toggle("blocked", !ok);
   elements.receiptIcon.textContent = ok ? "✓" : "!";
-  elements.receiptLabel.textContent = ok ? "TEST PAYMENT APPROVED" : "COMMAND BLOCKED";
+  elements.receiptLabel.textContent = ok ? `PENDING CLAIM · ${id}` : "COMMAND BLOCKED";
   elements.receiptTitle.textContent = title;
   elements.receiptReason.textContent = reason;
   elements.receiptDetails.hidden = !ok;
   elements.tipAmount.textContent = money(amount);
   elements.feeAmount.textContent = money(fee);
-  elements.budgetLeft.textContent = money(state.budget);
+  elements.budgetLeft.textContent = money(state.sender.budget);
+  if (ok && id) elements.claimLink.href = `claim.html?tip=${encodeURIComponent(id)}`;
 }
 
-elements.setupButton.addEventListener("click", () => {
-  if (state.setupStage === "identity") {
-    state.identityLinked = true;
-    state.setupStage = "budget";
-  } else if (state.setupStage === "budget") {
-    state.budgetApproved = true;
-    state.budget = 25;
-    state.active = true;
-    state.setupStage = "ready";
-  }
-  render();
-});
-
-elements.runButton.addEventListener("click", () => {
-  const parsed = parseTipCommand(elements.commandInput.value);
-  const time = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(new Date());
-
-  if (!parsed.ok) {
-    showReceipt({ ok: false, title: "Command not recognized", reason: parsed.reason });
-    state.activities.unshift({ ok: false, title: "Command not recognized", detail: parsed.reason, time });
+elements.setupButton.addEventListener("click", async () => { elements.setupButton.disabled = true; state = await api("/api/demo/setup", { method: "POST" }); render(); });
+elements.runButton.addEventListener("click", async () => {
+  elements.runButton.disabled = true;
+  elements.runButton.textContent = "Checking…";
+  try {
+    const result = await api("/api/demo/tips", { method: "POST", body: { command: elements.commandInput.value } });
+    state = result.state;
+    if (!result.ok) showReceipt({ ok: false, title: result.recipient ? `${money(result.amount)} to ${result.recipient}` : "Command not recognized", reason: result.reason });
+    else showReceipt({ ok: true, title: `${money(result.tip.amount)} reserved for ${result.tip.recipient}`, reason: "The tip is now waiting on the recipient claim page.", amount: result.tip.amount, fee: result.tip.fee, id: result.tip.id });
     render();
-    return;
+  } finally {
+    elements.runButton.disabled = false;
+    elements.runButton.textContent = "Reply";
   }
-
-  const result = evaluateTip({
-    amount: parsed.amount,
-    spentToday: state.spentToday,
-    budget: state.budget,
-    active: state.active,
-  });
-
-  if (!result.ok) {
-    showReceipt({ ok: false, title: `${money(parsed.amount)} to ${parsed.recipient}`, reason: result.reason });
-    state.activities.unshift({ ok: false, title: `Blocked ${money(parsed.amount)} tip`, detail: result.reason, time });
-    render();
-    return;
-  }
-
-  state.budget = Number((state.budget - result.total).toFixed(2));
-  state.spentToday = Number((state.spentToday + parsed.amount).toFixed(2));
-  state.activities.unshift({
-    ok: true,
-    title: `${money(parsed.amount)} sent to ${parsed.recipient}`,
-    detail: `${money(result.fee)} service fee · sample receipt`,
-    time,
-  });
-  showReceipt({
-    ok: true,
-    title: `${money(parsed.amount)} sent to ${parsed.recipient}`,
-    reason: "Within your approved test budget and policy.",
-    amount: parsed.amount,
-    fee: result.fee,
-  });
-  render();
 });
-
-elements.pauseButton.addEventListener("click", () => {
-  state.active = !state.active;
-  render();
-});
-
+elements.pauseButton.addEventListener("click", async () => { state = await api("/api/demo/pause", { method: "POST" }); render(); });
 elements.revokeButton.addEventListener("click", () => elements.revokeDialog.showModal());
+elements.confirmRevoke.addEventListener("click", async () => { state = await api("/api/demo/revoke", { method: "POST" }); elements.receipt.classList.add("is-hidden"); render(); });
+elements.resetButton.addEventListener("click", async () => { state = await api("/api/demo/reset", { method: "POST" }); elements.receipt.classList.add("is-hidden"); render(); });
 
-elements.confirmRevoke.addEventListener("click", () => {
-  state.budgetApproved = false;
-  state.budget = 0;
-  state.active = false;
-  state.setupStage = "budget";
-  elements.setupAction.classList.remove("is-complete");
-  elements.setupButton.disabled = false;
-  elements.receipt.classList.add("is-hidden");
-  render();
-});
-
-elements.resetButton.addEventListener("click", () => {
-  state = initialState();
-  elements.setupAction.classList.remove("is-complete");
-  elements.setupButton.disabled = false;
-  elements.receipt.classList.add("is-hidden");
-  render();
-});
-
+state = await api("/api/demo");
 render();

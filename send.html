@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="description" content="Set your TagTip budget and test an X tip command." /><title>Send a tip — TagTip</title><link rel="stylesheet" href="style.css" /></head>
+  <body class="site-body workspace-page">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <aside class="side-rail" aria-label="Primary navigation">
+      <a class="rail-brand" href="index.html"><span class="brand-sigil">T</span><span>TagTip</span></a>
+      <nav><a class="rail-link" href="index.html"><span class="nav-icon">⌂</span>Overview</a><a class="rail-link active" href="send.html"><span class="nav-icon">↗</span>Send a tip</a><a class="rail-link" href="claim.html"><span class="nav-icon">↓</span>Claim a tip</a></nav>
+      <div class="rail-bottom"><div class="rail-status"><i></i><span>Prototype</span><small>No real funds</small></div><button class="rail-profile" id="resetButton" type="button"><span class="mini-avatar">Y</span><span><strong>@you</strong><small>Reset demo</small></span><b>↻</b></button></div>
+    </aside>
+    <div class="app-frame">
+      <header class="topbar"><a class="mobile-brand" href="index.html"><span class="brand-sigil">T</span>TagTip</a><div class="breadcrumb"><a href="index.html">Overview</a><span>/</span><strong>Sender workspace</strong></div><nav class="top-actions"><a class="button ghost" href="claim.html">Recipient side</a><span class="pilot-pill"><i></i>Test mode</span></nav></header>
+      <main id="main" class="workspace-main content-bound">
+        <header class="workspace-heading"><div><p class="eyebrow">SENDER WORKSPACE</p><h1>Control the money.<br /><span>Tip from the timeline.</span></h1></div><p>Set up once here. After that, the useful part happens on X—not inside another dashboard.</p></header>
+        <section class="sender-grid">
+          <div class="setup-column">
+            <article class="panel setup-panel">
+              <div class="panel-heading"><div><p class="micro-label">SETUP</p><h2>Three steps to ready</h2></div><span class="status-badge" id="botStatus">Not ready</span></div>
+              <ol class="vertical-stepper"><li class="setup-step active" id="stepIdentity"><span>1</span><div><strong>Link X identity</strong><small id="identityState">Not linked</small></div></li><li class="setup-step" id="stepBudget"><span>2</span><div><strong>Approve test budget</strong><small id="budgetState">Not approved</small></div></li><li class="setup-step" id="stepCommand"><span>3</span><div><strong>Send from a reply</strong><small id="commandState">Waiting</small></div></li></ol>
+              <div class="setup-action" id="setupAction"><div><p class="setup-title">Link your demo identity</p><p class="setup-description">Simulates connecting an X account. No API request is made.</p></div><button class="button light" id="setupButton" type="button">Link @you</button></div>
+            </article>
+            <article class="panel policy-panel">
+              <div class="panel-heading"><div><p class="micro-label">POLICY</p><h2>Spending boundary</h2></div><span class="tiny-lock">Locked</span></div>
+              <div class="metric-pair"><div><span>Per tip</span><strong>$10.00</strong></div><div><span>Per day</span><strong>$25.00</strong></div></div>
+              <p class="policy-copy">Charge <strong>0.5%</strong> per tip, with a <strong>$0.01 minimum</strong> and <strong>$1 maximum</strong>.</p>
+              <div class="budget-line"><span>Available <strong id="budgetReadout">$0.00</strong></span><span>Spent today <strong id="spentReadout">$0.00</strong></span></div>
+              <div class="control-actions"><button class="button ghost" id="pauseButton" type="button" disabled>Pause bot</button><button class="button danger" id="revokeButton" type="button" disabled>Revoke access</button></div>
+            </article>
+          </div>
+          <div class="command-column">
+            <article class="x-compose panel">
+              <div class="x-top"><span>𝕏</span><small>Reply simulator</small><b>Sample data</b></div>
+              <div class="post-context"><span class="mini-avatar recipient">M</span><p><strong>Mara</strong><small>@mara · 2m</small></p><span>•••</span></div>
+              <p class="sample-post">I finally shipped the thing. Small wins count.</p>
+              <div class="reply-line"><span></span><small>Replying to @mara</small></div>
+              <div class="command-panel is-hidden" id="commandPanel"><span class="mini-avatar">Y</span><div class="command-entry"><label for="commandInput">Your reply</label><input id="commandInput" value="@TagTip send $5 to @mara" spellcheck="false" /><p>Try more than $10 to see the policy block it.</p></div><button class="button light" id="runButton" type="button">Reply</button></div>
+              <div class="locked-compose" id="lockedCompose">Finish setup to unlock the reply simulator.</div>
+            </article>
+            <article class="receipt panel is-hidden" id="receipt" role="status" aria-live="polite">
+              <div class="receipt-head"><span class="receipt-icon" id="receiptIcon">✓</span><div><p class="micro-label" id="receiptLabel">TEST PAYMENT APPROVED</p><h2 id="receiptTitle">$5.00 sent to @mara</h2><p id="receiptReason">Within your budget and policy.</p></div><a id="claimLink" href="claim.html">Preview claim ↗</a></div>
+              <dl id="receiptDetails"><div><dt>Tip</dt><dd id="tipAmount">$5.00</dd></div><div><dt>Service fee</dt><dd id="feeAmount">$0.03</dd></div><div><dt>Budget left</dt><dd id="budgetLeft">$19.97</dd></div></dl>
+            </article>
+            <article class="panel activity-window"><div class="panel-heading"><div><p class="micro-label">RECEIPTS</p><h2>Recent activity</h2></div><span>Sample data</span></div><ul class="activity-list" id="activityList"><li class="empty-activity">Run your first test command.</li></ul></article>
+          </div>
+        </section>
+      </main>
+      <footer class="site-footer content-bound"><span>Sender workspace</span><span>Test mode · no wallet permission requested</span></footer>
+    </div>
+    <dialog id="revokeDialog"><form method="dialog"><p class="micro-label">REVOKE TEST ACCESS</p><h2>Stop the bot completely?</h2><p>This clears the demo allowance. A real user would sign a wallet transaction to revoke it.</p><div class="dialog-actions"><button class="button ghost" value="cancel">Keep active</button><button class="button danger" id="confirmRevoke" value="confirm">Revoke access</button></div></form></dialog>
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>
