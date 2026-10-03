@@ -21,6 +21,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -699,6 +703,11 @@ dialog p:not(.micro-label) {
 @media (hover: hover) and (pointer: fine) {
   .primary-button:hover {
     background: #1d4c3f;
+  }
+
+  .command-input-row .primary-button:hover {
+    background: #cfe3da;
+    color: #16342a;
   }
 
   .secondary-button:hover,
