@@ -7,6 +7,7 @@ function fixture({ maxCalls = 10, pages, status = 200 } = {}) {
   const applied = [];
   const store = { load: async () => saved && structuredClone(saved), save: async state => { saved = structuredClone(state); } };
   const worker = createXProcessor({ token: "secret", botId: "99", botHandle: "TippOnSol", initialSinceId: "100", enabled: true, store,
+    appOrigin: "https://tagtip.example",
     maxCalls, now: () => time,
     fetcher: async rawUrl => {
       callCount++;
@@ -28,6 +29,9 @@ test("processor normalizes the configured bot and applies commands oldest first"
   assert.equal(f.applied[0].recipientId, "2");
   assert.equal(result.sinceId, "103");
   assert.equal(result.realFundsEnabled, false);
+  assert.equal(f.state().replyOutbox["101"].replyToPostId, "101");
+  assert.match(f.state().replyOutbox["101"].text, /@bob.*tagtip\.example/);
+  assert.equal(Object.keys(f.state().replyOutbox).length, 2);
   assert.equal((await f.worker.run()).deferred, true);
 });
 test("processor retains per-command progress when X request budget is exhausted", async () => {

@@ -58,6 +58,8 @@ The sandbox mention worker is disabled by default. Configure `X_BEARER_TOKEN`, `
 
 The worker fetches at most three mention pages and makes at most ten X requests per invocation. It processes oldest-first, checks the post's actual author ID, resolves recipient IDs through X, and applies sandbox reservations only for linked senders with available funds. Partial progress is checkpointed; retries do not repeat debits. A 429 response defers work until reset, and successful runs wait at least one minute before another poll. A backlog larger than three pages is rejected for operator review.
 
+Accepted commands also create bounded, durable acknowledgement records in the worker checkpoint. They are not posted yet: a future bot-authorized sender must deliver and reconcile that outbox without creating duplicate replies.
+
 Other protected endpoints: `GET /api/ops/status`, `GET /api/ops/reconcile`, and `POST /api/ops/expire`. No scheduler is installed automatically, so there are no surprise recurring API charges. Use your scheduler to POST only after validating configuration and setting a budget.
 
 Run `npm run build` for Vercel. It copies only nine allowlisted browser assets into `public/`; backend modules and local data are not public deployment assets. Vercel still requires `DATABASE_URL`. Hosted database, OAuth, and worker integrations require live verification.

@@ -2,7 +2,7 @@ import { parseTipCommand } from "./core.js";
 
 const validId = value => typeof value === "string" && /^\d{1,30}$/.test(value);
 export function createXProcessor({ token, botId, botHandle = "TagTip", initialSinceId, enabled = false,
-  store, applyEvent, fetcher = fetch, now = Date.now, maxCalls = 10 }) {
+  store, applyEvent, fetcher = fetch, now = Date.now, maxCalls = 10, appOrigin = "" }) {
   const configured = enabled && Boolean(token) && validId(botId) && validId(initialSinceId) && /^[A-Za-z0-9_]{1,15}$/.test(botHandle);
   return {
     configured,
@@ -12,6 +12,7 @@ export function createXProcessor({ token, botId, botHandle = "TagTip", initialSi
       const checkpoint = await store.load() || { sinceId: initialSinceId, lastRun: null, results: [] };
       if (!validId(checkpoint.sinceId)) throw new Error("Invalid processor checkpoint. Operator review required.");
       checkpoint.pendingResults ||= {};
+      checkpoint.replyOutbox ||= {};
       if (checkpoint.nextAllowedAt > now()) return { ok: true, deferred: true, nextAllowedAt: checkpoint.nextAllowedAt };
       let calls = 0;
       async function get(url) {
@@ -37,7 +38,7 @@ export function createXProcessor({ token, botId, botHandle = "TagTip", initialSi
       let pagination;
       for (let page = 0; page < 3; page++) {
         const url = new URL(`https://api.x.com/2/users/${botId}/mentions`);
-        url.search = new URLSearchParams({ since_id: checkpoint.sinceId, max_results: "100", "post.fields": "created_at", expansions: "author_id" }).toString();
+        url.search = new URLSearchParams({ since_id: checkpoint.sinceId, max_results: "100", "tweet.fields": "created_at,author_id" }).toString();
         if (pagination) url.searchParams.set("pagination_token", pagination);
         const body = await get(url.href);
         for (const post of body.data || []) {
@@ -61,6 +62,11 @@ export function createXProcessor({ token, botId, botHandle = "TagTip", initialSi
         const result = await applyEvent({ tweetId: post.id, senderId: post.author_id,
           recipientId: lookup.data.id, recipientHandle: lookup.data.username, amount: String(command.amount) });
         const receipt = { tweetId: post.id, ...result };
+        if ((result.status === "accepted" || result.status === "duplicate") && result.tipId && !checkpoint.replyOutbox[post.id]) {
+          if (Object.keys(checkpoint.replyOutbox).length >= 1000) throw new Error("X receipt outbox is full. Operator review required.");
+          checkpoint.replyOutbox[post.id] = { id: `tip-receipt-${post.id}`, replyToPostId: post.id, status: "pending",
+            text: `Tip reserved for @${lookup.data.username}. Claim it at ${appOrigin || "TagTip"}.`, createdAt: new Date(now()).toISOString() };
+        }
         results.push(receipt);
         checkpoint.pendingResults[post.id] = receipt;
         await store.save(checkpoint);

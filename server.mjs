@@ -39,7 +39,7 @@ const depositVerifier = createDevnetDepositVerifier({ rpcUrl: process.env.SOLANA
   treasuryTokenAccount: process.env.DEVNET_TREASURY_TOKEN_ACCOUNT, treasuryOwner: process.env.DEVNET_TREASURY_OWNER });
 const worker = createXProcessor({ token: process.env.X_BEARER_TOKEN, botId: process.env.X_BOT_USER_ID,
   botHandle: process.env.X_BOT_HANDLE, initialSinceId: process.env.X_START_SINCE_ID,
-  enabled: process.env.X_PROCESSOR_ENABLED === "true", store: workerStore,
+  enabled: process.env.X_PROCESSOR_ENABLED === "true", store: workerStore, appOrigin: process.env.APP_ORIGIN,
   async applyEvent(event) {
     const user = await auth.findId(event.senderId);
     if (!user) return { status: "blocked", reason: "Sender has not linked their X identity." };
