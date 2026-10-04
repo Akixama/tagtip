@@ -12,7 +12,7 @@ TagTip is a custodial-product sandbox, not a deployed custody service. No custom
 - Idempotent mock withdrawal reservations and cancellations; no transfers submitted.
 - Local persistence and Neon snapshot adapter with monotonic compare-and-swap revisions.
 - Disabled-by-default X mention reader with chronological processing, recipient-ID lookup, cursor checkpoints, request budgets and rate-limit backoff.
-- Durable, bounded X acknowledgement outbox entries for accepted tips. Posting remains disabled until bot-scoped write authorization and retry reconciliation are configured.
+- Durable, bounded X acknowledgement outbox entries and a disabled-by-default sender. Sent replies are recorded; rate limits defer; ambiguous and interrupted outcomes stop for operator review rather than risking duplicate posts.
 - Protected operation endpoints, bounded per-instance rate limits and queues, body limits and browser security headers.
 - Finalized devnet USDC deposit evidence checks with account-bound signature receipts, duplicate protection and a separate devnet balance. No demo-credit conversion or mainnet payout is possible. Receipts cover the whole supported transaction, not individual instructions.
 - Devnet withdrawal reservations require a recent wallet proof, enforce a pilot cap, retain idempotency and can be cancelled before broadcast. No transaction signer is configured.

@@ -60,6 +60,8 @@ The worker fetches at most three mention pages and makes at most ten X requests 
 
 Accepted commands also create bounded, durable acknowledgement records in the worker checkpoint. They are not posted yet: a future bot-authorized sender must deliver and reconcile that outbox without creating duplicate replies.
 
+The reply sender is separately disabled by default. With bot-only user authorization, `X_REPLY_ENABLED=true` and `X_BOT_USER_ACCESS_TOKEN`, an operator can invoke `npm run ops -- process-replies`. Successful replies are recorded once, rate limits defer pending work, and network/5xx/interrupted outcomes are marked unknown instead of being retried automatically.
+
 Other protected endpoints: `GET /api/ops/status`, `GET /api/ops/reconcile`, and `POST /api/ops/expire`. No scheduler is installed automatically, so there are no surprise recurring API charges. Use your scheduler to POST only after validating configuration and setting a budget.
 
 Run `npm run build` for Vercel. It copies only nine allowlisted browser assets into `public/`; backend modules and local data are not public deployment assets. Vercel still requires `DATABASE_URL`. Hosted database, OAuth, and worker integrations require live verification.

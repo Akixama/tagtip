@@ -14,6 +14,7 @@ import { createRateLimiter } from "./src/rate-limit.js";
 import { createDevnetDepositVerifier } from "./src/devnet-deposit.js";
 import { readinessReport } from "./src/readiness.js";
 import { createDepositReceipts } from "./src/deposit-receipts.js";
+import { createXReplySender } from "./src/x-replies.js";
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
@@ -55,6 +56,8 @@ const worker = createXProcessor({ token: process.env.X_BEARER_TOKEN, botId: proc
     }
   },
 });
+const replySender = createXReplySender({ token: process.env.X_BOT_USER_ACCESS_TOKEN,
+  enabled: process.env.X_REPLY_ENABLED === "true", store: workerStore });
 const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -114,6 +117,10 @@ async function handleRequest(request, response) {
       if (!worker.configured) return json(response, 503, { ok: false, reason: "X processor is disabled or not configured." });
       return json(response, 200, await worker.run());
     }
+    if (requestPath === "/api/ops/process-replies" && request.method === "POST") {
+      if (!replySender.configured) return json(response, 503, { ok: false, reason: "X reply sender is disabled or not configured." });
+      return json(response, 200, await replySender.run());
+    }
     if (requestPath === "/api/ops/reconcile" && request.method === "GET") {
       const accounts = createAccountLedger(await accountStore.load());
       return json(response, 200, { ...accounts.reconcile(), mode: "sandbox", realFundsEnabled: false });
@@ -124,7 +131,8 @@ async function handleRequest(request, response) {
       return json(response, 200, { ok: true, mode: "sandbox" });
     }
     if (requestPath === "/api/ops/status" && request.method === "GET") {
-      return json(response, 200, { ok: true, workerConfigured: worker.configured, checkpoint: await workerStore.load(), realFundsEnabled: false });
+      return json(response, 200, { ok: true, workerConfigured: worker.configured, replySenderConfigured: replySender.configured,
+        checkpoint: await workerStore.load(), realFundsEnabled: false });
     }
     if (requestPath === "/api/ops/readiness" && request.method === "GET") return json(response, 200, readinessReport());
     if (requestPath === "/api/ops/verify-devnet-deposit" && request.method === "POST") {
@@ -251,7 +259,8 @@ async function handleRequest(request, response) {
 
   if (requestPath === "/api/health" && request.method === "GET") {
     return json(response, 200, { ok: true, service: "tagtip", storage: storageType, mode: "sandbox",
-      demoIngestionEnabled: Boolean(processorSecret), processorEnabled: worker.configured, xLoginConfigured: auth.configured, realFundsEnabled: false });
+      demoIngestionEnabled: Boolean(processorSecret), processorEnabled: worker.configured, replySenderEnabled: replySender.configured,
+      xLoginConfigured: auth.configured, realFundsEnabled: false });
   }
   if (requestPath === "/api/demo" && request.method === "GET") return json(response, 200, ledger.snapshot());
   if (requestPath === "/api/demo/setup" && request.method === "POST") return persist(response, 200, ledger.setup());
