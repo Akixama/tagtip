@@ -49,3 +49,13 @@ Open `/account.html`. Signed-in users receive separate accounts keyed by their X
 Only the authenticated recipient ID may claim a tip. Claiming credits the recipient's internal test balance. Seven-day expiry refunds both amount and reserved fee; fees become earned only on claim. Web sandbox recipients must sign in first. The ledger also supports pending recipients resolved to an X ID before registration, for processor integration.
 
 `accounts-sandbox` Postgres state or ignored local `data/accounts-sandbox.json` is independent of the shared demo and identity state. It remains a snapshot-based sandbox, not a production treasury ledger. Withdrawals never create or submit Solana transactions. Do not send real USDC to this prototype.
+
+## X processor and operations
+
+The sandbox mention worker is disabled by default. Configure `X_BEARER_TOKEN`, `X_BOT_USER_ID`, `X_BOT_HANDLE`, and a deliberate recent `X_START_SINCE_ID`, then set `X_PROCESSOR_ENABLED=true`. Invoke `POST /api/ops/process-x` with `Authorization: Bearer <X_PROCESSOR_SECRET>`. This reads X API data and may consume paid API credits; no calls occur unless explicitly enabled and invoked. No posts/replies are published yet.
+
+The worker fetches at most three mention pages and makes at most ten X requests per invocation. It processes oldest-first, checks the post's actual author ID, resolves recipient IDs through X, and applies sandbox reservations only for linked senders with available funds. Partial progress is checkpointed; retries do not repeat debits. A 429 response defers work until reset, and successful runs wait at least one minute before another poll. A backlog larger than three pages is rejected for operator review.
+
+Other protected endpoints: `GET /api/ops/status`, `GET /api/ops/reconcile`, and `POST /api/ops/expire`. No scheduler is installed automatically, so there are no surprise recurring API charges. Use your scheduler to POST only after validating configuration and setting a budget.
+
+Run `npm run build` for Vercel. It copies only nine allowlisted browser assets into `public/`; backend modules and local data are not public deployment assets. Vercel still requires `DATABASE_URL`. Hosted database, OAuth, and worker integrations require live verification.

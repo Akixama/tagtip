@@ -8,6 +8,7 @@ import { createPostgresStore } from "./src/postgres-store.js";
 import { createAuthService, readCookies } from "./src/auth.js";
 import { createAccountLedger } from "./src/accounts.js";
 import { parseTipCommand } from "./src/core.js";
+import { createXProcessor } from "./src/x-processor.js";
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
@@ -22,6 +23,25 @@ const authStore = databaseUrl ? createPostgresStore(databaseUrl, "identity") : c
 const auth = createAuthService({ store: authStore, clientId: process.env.X_CLIENT_ID,
   clientSecret: process.env.X_CLIENT_SECRET, origin: process.env.APP_ORIGIN });
 const accountStore = databaseUrl ? createPostgresStore(databaseUrl, "accounts-sandbox") : createFileStore(process.env.ACCOUNT_DATA_FILE || join(root, "data", "accounts-sandbox.json"));
+const workerStore = databaseUrl ? createPostgresStore(databaseUrl, "x-worker") : createFileStore(process.env.WORKER_DATA_FILE || join(root, "data", "x-worker.json"));
+const worker = createXProcessor({ token: process.env.X_BEARER_TOKEN, botId: process.env.X_BOT_USER_ID,
+  botHandle: process.env.X_BOT_HANDLE, initialSinceId: process.env.X_START_SINCE_ID,
+  enabled: process.env.X_PROCESSOR_ENABLED === "true", store: workerStore,
+  async applyEvent(event) {
+    const user = await auth.findId(event.senderId);
+    if (!user) return { status: "blocked", reason: "Sender has not linked their X identity." };
+    const accounts = createAccountLedger(await accountStore.load());
+    accounts.reconcile(); accounts.touch(user);
+    try {
+      const result = accounts.send({ ...event, eventId: `x-${event.tweetId}` });
+      accounts.reconcile(); await accountStore.save(accounts.export());
+      return { status: result.duplicate ? "duplicate" : "accepted", tipId: result.tip.id };
+    } catch (error) {
+      if (error.code === "ACCOUNT_RULE") return { status: "blocked", reason: error.message };
+      throw error;
+    }
+  },
+});
 const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -60,11 +80,32 @@ const securityHeaders = {
 async function handleRequest(request, response) {
   Object.entries(securityHeaders).forEach(([name, value]) => response.setHeader(name, value));
   const parsedUrl = new URL(request.url, `http://${request.headers.host}`);
-  const rewrittenPath = parsedUrl.searchParams.get("path");
+  const rewrittenPath = parsedUrl.pathname === "/api/index" ? parsedUrl.searchParams.get("path") : null;
   const requestPath = rewrittenPath ? `/api/${rewrittenPath}` : parsedUrl.pathname;
   if (request.method === "POST" && request.headers.origin) {
     const expectedOrigin = process.env.APP_ORIGIN || `${process.env.VERCEL ? "https" : "http"}://${request.headers.host}`;
     if (request.headers.origin !== expectedOrigin) return json(response, 403, { ok: false, reason: "Origin not allowed." });
+  }
+
+  if (requestPath.startsWith("/api/ops/")) {
+    if (!processorSecret || request.headers.authorization !== `Bearer ${processorSecret}`) return json(response, 401, { ok: false, reason: "Processor authorization required." });
+    if (requestPath === "/api/ops/process-x" && request.method === "POST") {
+      if (!worker.configured) return json(response, 503, { ok: false, reason: "X processor is disabled or not configured." });
+      return json(response, 200, await worker.run());
+    }
+    if (requestPath === "/api/ops/reconcile" && request.method === "GET") {
+      const accounts = createAccountLedger(await accountStore.load());
+      return json(response, 200, { ...accounts.reconcile(), mode: "sandbox", realFundsEnabled: false });
+    }
+    if (requestPath === "/api/ops/expire" && request.method === "POST") {
+      const accounts = createAccountLedger(await accountStore.load()); accounts.reconcile(); accounts.expire(); accounts.reconcile();
+      await accountStore.save(accounts.export());
+      return json(response, 200, { ok: true, mode: "sandbox" });
+    }
+    if (requestPath === "/api/ops/status" && request.method === "GET") {
+      return json(response, 200, { ok: true, workerConfigured: worker.configured, checkpoint: await workerStore.load(), realFundsEnabled: false });
+    }
+    return json(response, 404, { ok: false, reason: "Not found." });
   }
 
   if (requestPath.startsWith("/api/auth/")) {
@@ -89,7 +130,7 @@ async function handleRequest(request, response) {
       try {
         const result = await auth.callback({ code: parsedUrl.searchParams.get("code"), nonce: parsedUrl.searchParams.get("state"), browser: cookies.tagtip_oauth });
         response.setHeader("Set-Cookie", result.cookies);
-        return response.writeHead(303, { Location: "/send.html?login=success" }).end();
+        return response.writeHead(303, { Location: "/account.html?login=success" }).end();
       } catch {
         return json(response, 400, { ok: false, reason: "X login failed or expired. Please start again." });
       }
@@ -209,7 +250,7 @@ async function handleRequest(request, response) {
   const relative = requestPath === "/" ? "index.html" : requestPath.slice(1);
   const publicFiles = new Set(["index.html", "send.html", "claim.html", "account.html", "style.css", "src/app.js", "src/claim.js", "src/account-ui.js", "src/core.js"]);
   if (!publicFiles.has(relative)) return response.writeHead(404).end("Not found");
-  const filePath = normalize(join(root, relative));
+  const filePath = normalize(join(root, process.env.VERCEL ? "public" : "", relative));
 
   if (!filePath.startsWith(root)) {
     response.writeHead(403).end("Forbidden");
