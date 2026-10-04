@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 
 export function createFileStore(path) {
@@ -13,7 +14,9 @@ export function createFileStore(path) {
     },
     async save(value) {
       await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+      const temporaryPath = `${path}.${randomUUID()}.tmp`;
+      await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+      await rename(temporaryPath, path);
     },
   };
 }

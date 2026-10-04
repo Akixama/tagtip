@@ -14,6 +14,7 @@ export function createDemoLedger(seed = null) {
         budgetApproved: false,
         budget: 0,
         spentToday: 0,
+        spendingDay: new Date().toISOString().slice(0, 10),
         active: false,
         setupStage: "identity",
       },
@@ -26,6 +27,14 @@ export function createDemoLedger(seed = null) {
   const snapshot = () => structuredClone(state);
   const activity = (ok, title, detail) => state.activities.unshift({ ok, title, detail, time: nowLabel() });
   const findTip = (id) => state.tips.find((tip) => tip.id === id);
+  const rollover = () => {
+    const day = new Date().toISOString().slice(0, 10);
+    if (state.sender.spendingDay !== day) {
+      state.sender.spentToday = 0;
+      state.sender.spendingDay = day;
+    }
+  };
+  const isExpired = (tip) => Date.now() - new Date(tip.createdAt).getTime() >= 7 * 24 * 60 * 60 * 1000;
 
   const setup = () => {
     if (state.sender.setupStage === "identity") {
@@ -41,6 +50,7 @@ export function createDemoLedger(seed = null) {
   };
 
   const createTip = (command, metadata = {}) => {
+    rollover();
     if (metadata.sourceId) {
       const existing = state.tips.find((tip) => tip.sourceId === metadata.sourceId);
       if (existing) return { ok: true, duplicate: true, tip: structuredClone(existing), state: snapshot() };
@@ -94,14 +104,14 @@ export function createDemoLedger(seed = null) {
 
   const verify = (id) => {
     const tip = findTip(id);
-    if (!tip || tip.status !== "ready") return null;
+    if (!tip || tip.status !== "ready" || isExpired(tip)) return null;
     tip.status = "verified";
     return snapshot();
   };
 
   const connectWallet = (id, wallet = "7mR2…a91Q") => {
     const tip = findTip(id);
-    if (!tip || tip.status !== "verified") return null;
+    if (!tip || tip.status !== "verified" || isExpired(tip)) return null;
     tip.wallet = wallet;
     tip.status = "wallet_connected";
     return snapshot();
@@ -109,7 +119,7 @@ export function createDemoLedger(seed = null) {
 
   const claim = (id) => {
     const tip = findTip(id);
-    if (!tip || tip.status !== "wallet_connected") return null;
+    if (!tip || tip.status !== "wallet_connected" || isExpired(tip)) return null;
     tip.status = "claimed";
     tip.claimedAt = new Date().toISOString();
     return snapshot();
@@ -128,7 +138,9 @@ export function createDemoLedger(seed = null) {
       tip.status = "expired";
       tip.expiredAt = new Date(now).toISOString();
       state.sender.budget = Number((state.sender.budget + tip.amount + tip.fee).toFixed(2));
-      state.sender.spentToday = Math.max(0, Number((state.sender.spentToday - tip.amount).toFixed(2)));
+      if (tip.createdAt.slice(0, 10) === state.sender.spendingDay) {
+        state.sender.spentToday = Math.max(0, Number((state.sender.spentToday - tip.amount).toFixed(2)));
+      }
       activity(true, `${money(tip.amount)} returned`, `${tip.id} expired before it was claimed`);
       expired += 1;
     }

@@ -28,7 +28,7 @@ export function parseTipCommand(raw) {
 export function calculateFee(amount, policy = POLICY) {
   return Math.min(
     policy.maximumFee,
-    Math.max(policy.minimumFee, Number((amount * policy.feeRate).toFixed(2))),
+    Math.max(policy.minimumFee, Math.round((amount * policy.feeRate + Number.EPSILON) * 100) / 100),
   );
 }
 

@@ -55,6 +55,10 @@ async function handleRequest(request, response) {
   const parsedUrl = new URL(request.url, `http://${request.headers.host}`);
   const rewrittenPath = parsedUrl.searchParams.get("path");
   const requestPath = rewrittenPath ? `/api/${rewrittenPath}` : parsedUrl.pathname;
+  if (request.method === "POST" && request.headers.origin) {
+    const expectedOrigin = process.env.APP_ORIGIN || `${process.env.VERCEL ? "https" : "http"}://${request.headers.host}`;
+    if (request.headers.origin !== expectedOrigin) return json(response, 403, { ok: false, reason: "Origin not allowed." });
+  }
 
   if (requestPath.startsWith("/api/") && requestPath !== "/api/health") {
     ledger = createDemoLedger(await store.load());

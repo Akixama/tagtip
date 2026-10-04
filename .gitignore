@@ -3,3 +3,7 @@ data/*.json
 brag-output/
 .npm-cache/
 node_modules/
+.env
+.env.local
+.env.*.local
+data/*.tmp

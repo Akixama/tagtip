@@ -63,7 +63,7 @@ test("does not charge twice for the same X event", () => {
   assert.equal(first.duplicate, undefined);
   assert.equal(second.duplicate, true);
   assert.equal(ledger.snapshot().tips.length, 1);
-  assert.equal(ledger.snapshot().sender.budget, 21.99);
+  assert.equal(ledger.snapshot().sender.budget, 21.98);
 });
 
 test("expires an unclaimed tip and returns its amount plus fee", () => {
@@ -76,4 +76,32 @@ test("expires an unclaimed tip and returns its amount plus fee", () => {
   assert.equal(result.expired, 1);
   assert.equal(result.state.tips[0].status, "expired");
   assert.equal(result.state.sender.budget, 25);
+});
+
+test("rounds a half-cent service fee up", () => {
+  assert.equal(calculateFee(3), 0.02);
+});
+
+test("daily spend rolls over without restoring the available balance", () => {
+  const ledger = createDemoLedger();
+  ledger.setup(); ledger.setup();
+  ledger.createTip("@TagTip send $5 to @mara");
+  const seed = ledger.snapshot();
+  seed.sender.spendingDay = "2020-01-01";
+  seed.sender.spentToday = 25;
+  const restored = createDemoLedger(seed);
+  const result = restored.createTip("@TagTip send $2 to @mara");
+  assert.equal(result.ok, true);
+  assert.equal(result.state.sender.spentToday, 2);
+  assert.equal(result.state.sender.budget, 17.96);
+});
+
+test("an expired record cannot be claimed before the expiry job runs", () => {
+  const ledger = createDemoLedger();
+  ledger.setup(); ledger.setup();
+  const created = ledger.createTip("@TagTip send $2 to @mara");
+  ledger.verify(created.tip.id); ledger.connectWallet(created.tip.id);
+  const seed = ledger.snapshot();
+  seed.tips[0].createdAt = "2020-01-01T00:00:00.000Z";
+  assert.equal(createDemoLedger(seed).claim(created.tip.id), null);
 });

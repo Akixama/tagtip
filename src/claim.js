@@ -20,11 +20,12 @@ async function api(path, method = "GET") {
 function complete(step) { step.classList.remove("active"); step.classList.add("complete"); }
 
 function renderTip(state) {
-  tip = state.tips.find((item) => item.id === requestedTipId) || state.tips.find((item) => !["claimed", "expired"].includes(item.status)) || state.tips[0];
+  tip = requestedTipId ? state.tips.find((item) => item.id === requestedTipId) : state.tips.find((item) => !["claimed", "expired"].includes(item.status)) || state.tips[0];
   const hasTip = Boolean(tip);
   elements.empty.classList.toggle("is-hidden", hasTip);
   elements.steps.classList.toggle("is-hidden", !hasTip);
   if (!hasTip) {
+    elements.empty.querySelector("p").textContent = requestedTipId ? "This claim link could not be found." : "No pending tip yet.";
     elements.state.textContent = "Waiting";
     elements.amount.innerHTML = '$0.00 <small>USDC</small>';
     return;
@@ -38,6 +39,9 @@ function renderTip(state) {
   elements.walletButton.disabled = tip.status !== "verified";
   elements.claimButton.disabled = tip.status !== "wallet_connected";
   elements.claimButton.textContent = `Claim ${money(tip.amount)}`;
+  elements.result.classList.add("is-hidden");
+  for (const step of [elements.verifyStep, elements.walletStep, elements.claimStep]) step.classList.remove("active", "complete");
+  if (tip.status === "ready") elements.verifyStep.classList.add("active");
   if (["verified", "wallet_connected", "claimed"].includes(tip.status)) complete(elements.verifyStep);
   if (["wallet_connected", "claimed"].includes(tip.status)) complete(elements.walletStep);
   if (tip.status === "expired") {
@@ -47,7 +51,7 @@ function renderTip(state) {
   } else if (tip.status === "claimed") {
     complete(elements.claimStep);
     elements.result.classList.remove("is-hidden");
-    elements.resultCopy.innerHTML = `${money(tip.amount)} USDC would be sent to <b>${tip.wallet}</b>.`;
+    elements.resultCopy.textContent = `${money(tip.amount)} USDC would be sent to ${tip.wallet}.`;
   } else if (tip.status === "wallet_connected") elements.claimStep.classList.add("active");
   else if (tip.status === "verified") elements.walletStep.classList.add("active");
 }
