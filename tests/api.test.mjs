@@ -4,10 +4,22 @@ import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { createFileStore } from "../src/file-store.js";
 
 test("HTTP demo lifecycle and security boundaries", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "tagtip-api-"));
   process.env.DEMO_DATA_FILE = join(directory, "ledger.json");
+  process.env.AUTH_DATA_FILE = join(directory, "identity.json");
+  process.env.ACCOUNT_DATA_FILE = join(directory, "accounts.json");
+  process.env.APP_ORIGIN = "http://localhost:4173";
+  process.env.X_CLIENT_ID = "";
+  process.env.X_CLIENT_SECRET = "";
+  await createFileStore(process.env.AUTH_DATA_FILE).save({ accounts: {
+    "1": { id: "1", username: "alice" }, "2": { id: "2", username: "bob" }, "3": { id: "3", username: "charlie" },
+  }, flows: {}, sessions: Object.fromEntries(["alice", "bob", "charlie"].map((name, index) => [
+    createHash("sha256").update(name).digest("base64url"), { accountId: String(index + 1), expiresAt: Date.now() + 86_400_000 },
+  ])) });
   process.env.DATABASE_URL = "";
   process.env.X_PROCESSOR_SECRET = "test-only-processor-secret";
   delete process.env.VERCEL;
@@ -71,5 +83,29 @@ test("HTTP demo lifecycle and security boundaries", async (t) => {
     const malformed = await fetch(`${origin}/api/demo/tips`, { method: "POST", body: "{" });
     assert.equal(malformed.status, 400);
     assert.equal((await request("/api/demo/tips", { command: 123 })).status, 400);
+  });
+  await t.test("personal accounts require sessions and same-origin mutations", async () => {
+    assert.equal((await request("/api/account")).status, 401);
+    assert.equal((await request("/api/account/fund", {}, { Cookie: "tagtip_session=alice" })).status, 403);
+    assert.equal((await request("/api/auth/x/start")).status, 503);
+  });
+  await t.test("authenticated account flows cannot access another user's money", async () => {
+    const headers = name => ({ Cookie: `tagtip_session=${name}`, Origin: process.env.APP_ORIGIN });
+    assert.equal((await request("/api/account/fund", {}, headers("alice"))).status, 200);
+    const sent = await request("/api/account/tips", { command: "@TagTip send $5 to @bob", requestId: "intent-one" }, headers("alice"));
+    assert.equal(sent.status, 200);
+    const tipId = (await sent.json()).tip.id;
+    assert.equal((await request(`/api/account/tips/${tipId}/claim`, {}, headers("alice"))).status, 422);
+    const claimed = await request(`/api/account/tips/${tipId}/claim`, {}, headers("bob"));
+    assert.equal(claimed.status, 200);
+    assert.equal((await claimed.json()).state.availableUnits, 5_000_000);
+    const charlie = await (await request("/api/account", undefined, headers("charlie"))).json();
+    assert.equal(charlie.state.availableUnits, 0);
+    assert.equal(charlie.state.tips.length, 0);
+    assert.equal(charlie.state.journal.length, 0);
+    const withdrawal = await request("/api/account/withdrawals", { amount: "2", wallet: "2NPvC47BoysYXVt4qikqqBQVGuh2yRSgX84pA2U7g1sW", requestId: "withdraw-1" }, headers("bob"));
+    const withdrawalId = (await withdrawal.json()).withdrawal.id;
+    assert.equal((await request(`/api/account/withdrawals/${withdrawalId}/cancel`, {}, headers("alice"))).status, 422);
+    assert.equal((await request(`/api/account/withdrawals/${withdrawalId}/cancel`, {}, headers("bob"))).status, 200);
   });
 });

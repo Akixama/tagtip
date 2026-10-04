@@ -76,6 +76,10 @@ export function createAuthService({ store, clientId, clientSecret, origin, fetch
       const entry = state.sessions[hash(session)];
       return entry ? state.accounts[entry.accountId] || null : null;
     },
+    async findHandle(username) {
+      const state = await load();
+      return Object.values(state.accounts).find(account => account.username.toLowerCase() === username.toLowerCase()) || null;
+    },
     async logout(session) {
       const state = await load();
       if (session) delete state.sessions[hash(session)];

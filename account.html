@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="description" content="Your verified X identity, personal sandbox balance and pending tips."/><title>Your account — TagTip</title><link rel="stylesheet" href="style.css"/></head>
+<body class="site-body workspace-page">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <aside class="side-rail" aria-label="Primary navigation">
+    <a class="rail-brand" href="index.html"><span class="brand-sigil">T</span>TagTip</a>
+    <nav><a class="rail-link" href="index.html">⌂ Overview</a><a class="rail-link active" href="account.html">◎ Your account</a><a class="rail-link" href="send.html">↗ Demo sender</a><a class="rail-link" href="claim.html">↓ Demo recipient</a></nav>
+    <div class="rail-bottom"><div class="rail-status"><i></i><span>Account sandbox</span><small>Real identity · test money</small></div></div>
+  </aside>
+  <div class="app-frame">
+    <header class="topbar"><a class="mobile-brand" href="index.html"><span class="brand-sigil">T</span>TagTip</a><div class="breadcrumb"><a href="index.html">Overview</a><span>/</span><strong>Your account</strong></div><nav class="top-actions"><span class="pilot-pill">No real funds</span><button class="button ghost" id="logout" hidden>Sign out</button></nav></header>
+    <main id="main" class="workspace-main content-bound">
+      <header class="workspace-heading"><div><p class="eyebrow">YOUR TAGTIP ACCOUNT</p><h1>Your identity.<br/><span>Your own balance.</span></h1></div><p>Sign in with X. Test tips between real identities, without depositing or moving real money.</p></header>
+      <p id="notice" class="account-notice" role="status" aria-live="polite">Checking your session…</p>
+      <section id="loginPanel" class="panel account-login" hidden>
+        <p class="micro-label">START WITH YOUR IDENTITY</p><h2>Connect X. Keep it read-only.</h2><p>We verify your X user ID. We do not request permission to post for you. This account is separate from the shared demo.</p>
+        <a id="loginLink" class="button light" href="/api/auth/x/start" hidden>Continue with X ↗</a>
+        <p id="loginUnavailable" hidden>X login is not configured on this deployment yet. You can still explore the <a href="send.html">shared demo ↗</a>.</p>
+      </section>
+      <section id="workspace" hidden>
+        <div class="account-summary panel"><div><p class="micro-label" id="identity">VERIFIED X ACCOUNT</p><h2 id="balance">0.00 <small>test USDC</small></h2><p id="accountStatus">Available balance</p></div><button class="button light" id="fund">Add 25 test USDC</button></div>
+        <div class="sender-grid">
+          <div class="setup-column">
+            <article class="panel account-form"><p class="micro-label">SPENDING CONTROLS</p><h2>A boundary you choose.</h2>
+              <form id="policyForm"><div class="account-fields"><label>Per tip · USDC<input id="perTip" inputmode="decimal" value="10" required/></label><label>Per day · USDC<input id="perDay" inputmode="decimal" value="25" required/></label></div><label class="account-check"><input id="paused" type="checkbox"/>Pause tipping</label><button class="button ghost" type="submit">Save controls</button></form>
+              <p class="account-help">Fees: 0.5%, minimum 0.01 USDC, maximum 1 USDC. Daily limits count tip amounts; the fee is additional.</p>
+            </article>
+            <article class="panel account-form"><p class="micro-label">WITHDRAWAL SANDBOX</p><h2>Reserve. Never send.</h2><p class="account-help">This tests the withdrawal queue. No blockchain transaction occurs. You can cancel and release the reservation.</p>
+              <form id="withdrawForm"><label>Amount · USDC<input id="withdrawAmount" inputmode="decimal" placeholder="5.00" required/></label><label>Solana destination<input id="wallet" autocomplete="off" placeholder="Your public wallet address" required/></label><button class="button ghost" type="submit">Reserve test withdrawal</button></form>
+              <div id="withdrawals" class="account-records"></div>
+            </article>
+          </div>
+          <div class="command-column">
+            <article class="panel account-form"><p class="micro-label">PERSONAL COMMAND SANDBOX</p><h2>Make a tip pending.</h2><p class="account-help">The recipient must sign in once for this web sandbox. No post is published on X.</p><form id="tipForm"><label>Your command<input id="command" value="@TagTip send $5 to @username" required maxlength="280"/></label><button class="button light" type="submit">Create test tip ↗</button></form></article>
+            <article class="panel account-form"><div class="panel-heading"><div><p class="micro-label">PENDING & CLAIMED</p><h2>Your tips</h2></div><button class="button ghost" id="refresh">Refresh</button></div><p class="account-help">Claiming credits your TagTip test balance—not your external wallet. Unclaimed tips expire after seven days and return to the sender.</p><div id="tips" class="account-records"></div></article>
+            <article class="panel account-form"><p class="micro-label">ACCOUNTING TRACE</p><h2>Every movement, recorded.</h2><div id="journal" class="account-records"></div></article>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer content-bound"><span>Verified identity sandbox</span><span>Deposits and blockchain withdrawals disabled</span></footer>
+  </div>
+  <script type="module" src="src/account-ui.js"></script>
+</body>
+</html>

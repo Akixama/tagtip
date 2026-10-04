@@ -6,6 +6,8 @@ import { createDemoLedger } from "./src/ledger.js";
 import { createFileStore } from "./src/file-store.js";
 import { createPostgresStore } from "./src/postgres-store.js";
 import { createAuthService, readCookies } from "./src/auth.js";
+import { createAccountLedger } from "./src/accounts.js";
+import { parseTipCommand } from "./src/core.js";
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
@@ -19,6 +21,7 @@ const processorSecret = process.env.X_PROCESSOR_SECRET || "";
 const authStore = databaseUrl ? createPostgresStore(databaseUrl, "identity") : createFileStore(process.env.AUTH_DATA_FILE || join(root, "data", "identity.json"));
 const auth = createAuthService({ store: authStore, clientId: process.env.X_CLIENT_ID,
   clientSecret: process.env.X_CLIENT_SECRET, origin: process.env.APP_ORIGIN });
+const accountStore = databaseUrl ? createPostgresStore(databaseUrl, "accounts-sandbox") : createFileStore(process.env.ACCOUNT_DATA_FILE || join(root, "data", "accounts-sandbox.json"));
 const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -94,6 +97,55 @@ async function handleRequest(request, response) {
     return json(response, 404, { ok: false, reason: "Not found." });
   }
 
+  if (requestPath === "/api/account" || requestPath.startsWith("/api/account/")) {
+    const user = await auth.me(readCookies(request.headers.cookie).tagtip_session);
+    if (!user) return json(response, 401, { ok: false, reason: "Sign in with X first." });
+    if (request.method === "POST" && (!process.env.APP_ORIGIN || request.headers.origin !== process.env.APP_ORIGIN)) {
+      return json(response, 403, { ok: false, reason: "Same-origin request required." });
+    }
+    try {
+      const accounts = createAccountLedger(await accountStore.load());
+      accounts.reconcile(); accounts.touch(user);
+      let result = {};
+      if (requestPath === "/api/account" && request.method === "GET") {
+        // Snapshot below only exposes this authenticated user's records.
+      } else if (requestPath === "/api/account/fund" && request.method === "POST") {
+        accounts.fund(user.id);
+      } else if (requestPath === "/api/account/policy" && request.method === "POST") {
+        const body = await readJson(request);
+        accounts.policy(user.id, body.perTip, body.perDay, body.paused);
+      } else if (requestPath === "/api/account/tips" && request.method === "POST") {
+        const body = await readJson(request);
+        if (typeof body.command !== "string") return json(response, 400, { ok: false, reason: "Command must be text." });
+        const parsed = parseTipCommand(body.command);
+        if (!parsed.ok) return json(response, 422, parsed);
+        const recipient = await auth.findHandle(parsed.recipient.slice(1));
+        if (!recipient) return json(response, 422, { ok: false, reason: "For this sandbox, the recipient must sign in with X first. Unregistered-recipient resolution will be handled by the X processor." });
+        accounts.touch(recipient);
+        result = accounts.send({ senderId: user.id, recipientId: recipient.id, recipientHandle: recipient.username,
+          amount: String(parsed.amount), eventId: body.requestId });
+      } else if (requestPath === "/api/account/withdrawals" && request.method === "POST") {
+        const body = await readJson(request);
+        result.withdrawal = accounts.withdraw(user.id, body.amount, body.wallet, body.requestId);
+      } else {
+        const claim = requestPath.match(/^\/api\/account\/tips\/([a-f0-9-]{36})\/claim$/);
+        const cancel = requestPath.match(/^\/api\/account\/withdrawals\/([a-f0-9-]{36})\/cancel$/);
+        if (claim && request.method === "POST") result.tip = accounts.claim(claim[1], user.id);
+        else if (cancel && request.method === "POST") accounts.cancelWithdrawal(cancel[1], user.id);
+        else return json(response, 404, { ok: false, reason: "Not found." });
+      }
+      const snapshot = accounts.snapshot(user.id);
+      accounts.reconcile();
+      await accountStore.save(accounts.export());
+      return json(response, 200, { ok: true, ...result, state: snapshot });
+    } catch (error) {
+      if (error.code === "LEDGER_CONFLICT") throw error;
+      if (error.code === "ACCOUNT_RULE") return json(response, 422, { ok: false, reason: error.message });
+      if (error instanceof SyntaxError) return json(response, 400, { ok: false, reason: "Invalid JSON body." });
+      throw error;
+    }
+  }
+
   if (requestPath.startsWith("/api/") && requestPath !== "/api/health") {
     ledger = createDemoLedger(await store.load());
   }
@@ -155,7 +207,7 @@ async function handleRequest(request, response) {
   }
 
   const relative = requestPath === "/" ? "index.html" : requestPath.slice(1);
-  const publicFiles = new Set(["index.html", "send.html", "claim.html", "style.css", "src/app.js", "src/claim.js", "src/core.js"]);
+  const publicFiles = new Set(["index.html", "send.html", "claim.html", "account.html", "style.css", "src/app.js", "src/claim.js", "src/account-ui.js", "src/core.js"]);
   if (!publicFiles.has(relative)) return response.writeHead(404).end("Not found");
   const filePath = normalize(join(root, relative));
 

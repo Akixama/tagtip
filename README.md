@@ -40,4 +40,12 @@ Set `APP_ORIGIN`, `X_CLIENT_ID`, and `X_CLIENT_SECRET` for a confidential X web 
 
 The callback verifies identity with X, creates an account keyed by immutable X user ID, and issues a 24-hour HttpOnly session cookie. OAuth state is browser-bound, expires after ten minutes, and is consumed once. Session tokens are hashed in storage. X access tokens are not persisted. `GET /api/auth/me` returns the signed-in profile; same-origin `POST /api/auth/logout` revokes the local session. Hosted deployments must use HTTPS.
 
-Identity data is stored separately from demo funds (`identity` Postgres row or ignored local `data/identity.json`). Signing in does not grant ownership of any demo balance or tip. Individual balances, authenticated recipient claims, bot account authorization, rate limiting, and live X configuration are still pending. The current financial screens remain explicitly simulated.
+Identity data is stored separately from demo funds (`identity` Postgres row or ignored local `data/identity.json`). Signing in does not grant ownership of any shared demo balance or tip. Live X configuration, bot authorization, and real settlement remain pending.
+
+## Personal financial sandbox
+
+Open `/account.html`. Signed-in users receive separate accounts keyed by their X user IDs. Each may add 25 test USDC once, configure limits, pause tipping, create pending tips, claim incoming tips, and reserve/cancel mock withdrawals. All amounts use integer millionths of USDC; a balanced journal records every movement. Reconciliation runs before and after account mutations.
+
+Only the authenticated recipient ID may claim a tip. Claiming credits the recipient's internal test balance. Seven-day expiry refunds both amount and reserved fee; fees become earned only on claim. Web sandbox recipients must sign in first. The ledger also supports pending recipients resolved to an X ID before registration, for processor integration.
+
+`accounts-sandbox` Postgres state or ignored local `data/accounts-sandbox.json` is independent of the shared demo and identity state. It remains a snapshot-based sandbox, not a production treasury ledger. Withdrawals never create or submit Solana transactions. Do not send real USDC to this prototype.
