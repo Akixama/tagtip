@@ -1,13 +1,19 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createDemoLedger } from "./src/ledger.js";
 import { createFileStore } from "./src/file-store.js";
+import { createPostgresStore } from "./src/postgres-store.js";
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
-const store = createFileStore(join(root, "data", "demo-ledger.json"));
-const ledger = createDemoLedger(await store.load());
+const databaseUrl = process.env.DATABASE_URL || "";
+if (process.env.VERCEL && !databaseUrl) throw new Error("DATABASE_URL is required on Vercel.");
+const storageType = databaseUrl ? "postgres" : "file";
+const store = databaseUrl ? createPostgresStore(databaseUrl) : createFileStore(join(root, "data", "demo-ledger.json"));
+let ledger = createDemoLedger(await store.load());
+let requestQueue = Promise.resolve();
 const processorSecret = process.env.X_PROCESSOR_SECRET || "";
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -23,7 +29,12 @@ const json = (response, status, payload) => {
 
 const readJson = async (request) => {
   const chunks = [];
-  for await (const chunk of request) chunks.push(chunk);
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > 16384) throw new Error("Request body exceeds 16KB.");
+    chunks.push(chunk);
+  }
   if (!chunks.length) return {};
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 };
@@ -39,12 +50,18 @@ const securityHeaders = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 };
 
-createServer(async (request, response) => {
+async function handleRequest(request, response) {
   Object.entries(securityHeaders).forEach(([name, value]) => response.setHeader(name, value));
-  const requestPath = new URL(request.url, `http://${request.headers.host}`).pathname;
+  const parsedUrl = new URL(request.url, `http://${request.headers.host}`);
+  const rewrittenPath = parsedUrl.searchParams.get("path");
+  const requestPath = rewrittenPath ? `/api/${rewrittenPath}` : parsedUrl.pathname;
+
+  if (requestPath.startsWith("/api/") && requestPath !== "/api/health") {
+    ledger = createDemoLedger(await store.load());
+  }
 
   if (requestPath === "/api/health" && request.method === "GET") {
-    return json(response, 200, { ok: true, service: "tagtip", storage: "file", mode: processorSecret ? "protected" : "demo" });
+    return json(response, 200, { ok: true, service: "tagtip", storage: storageType, mode: processorSecret ? "protected" : "demo" });
   }
   if (requestPath === "/api/demo" && request.method === "GET") return json(response, 200, ledger.snapshot());
   if (requestPath === "/api/demo/setup" && request.method === "POST") return persist(response, 200, ledger.setup());
@@ -58,9 +75,11 @@ createServer(async (request, response) => {
   if (requestPath === "/api/demo/tips" && request.method === "POST") {
     try {
       const body = await readJson(request);
-      const result = ledger.createTip(body.command || "");
+      if (typeof body.command !== "string") return json(response, 400, { ok: false, reason: "command must be text." });
+      const result = ledger.createTip(body.command);
       return persist(response, result.ok ? 201 : 422, result);
-    } catch {
+    } catch (error) {
+      if (error.code === "LEDGER_CONFLICT") throw error;
       return json(response, 400, { ok: false, reason: "Invalid JSON body." });
     }
   }
@@ -71,10 +90,11 @@ createServer(async (request, response) => {
     }
     try {
       const body = await readJson(request);
-      if (!body.tweetId || !body.text) return json(response, 400, { ok: false, reason: "tweetId and text are required." });
+      if (typeof body.tweetId !== "string" || !body.tweetId || body.tweetId.length > 100 || typeof body.text !== "string") return json(response, 400, { ok: false, reason: "tweetId and text must be valid strings." });
       const result = ledger.createTip(body.text, { source: "x", sourceId: String(body.tweetId) });
       return persist(response, result.ok ? (result.duplicate ? 200 : 201) : 422, result);
-    } catch {
+    } catch (error) {
+      if (error.code === "LEDGER_CONFLICT") throw error;
       return json(response, 400, { ok: false, reason: "Invalid JSON body." });
     }
   }
@@ -96,6 +116,8 @@ createServer(async (request, response) => {
   }
 
   const relative = requestPath === "/" ? "index.html" : requestPath.slice(1);
+  const publicFiles = new Set(["index.html", "send.html", "claim.html", "style.css", "src/app.js", "src/claim.js", "src/core.js"]);
+  if (!publicFiles.has(relative)) return response.writeHead(404).end("Not found");
   const filePath = normalize(join(root, relative));
 
   if (!filePath.startsWith(root)) {
@@ -110,6 +132,22 @@ createServer(async (request, response) => {
   } catch {
     response.writeHead(404).end("Not found");
   }
-}).listen(port, () => {
-  console.log(`TagTip preview: http://localhost:${port}`);
-});
+}
+
+export function requestHandler(request, response) {
+  const run = requestQueue.then(() => handleRequest(request, response)).catch((error) => {
+    if (!response.headersSent) json(response, error.code === "LEDGER_CONFLICT" ? 409 : 503, {
+      ok: false,
+      reason: error.code === "LEDGER_CONFLICT" ? "Another request updated this balance. Please retry." : "Service temporarily unavailable.",
+    });
+  });
+  requestQueue = run;
+  return run;
+}
+
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectRun) {
+  createServer(requestHandler).listen(port, () => {
+    console.log(`TagTip preview: http://localhost:${port}`);
+  });
+}

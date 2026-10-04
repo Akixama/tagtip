@@ -30,4 +30,6 @@ Open `http://localhost:4173`.
 
 No real wallet permission, X API request, token transfer, or custom Solana program is used yet. Local state is stored in `data/demo-ledger.json` and is intentionally ignored by Git. Set `X_PROCESSOR_SECRET` to protect the X-event ingestion endpoint outside demo mode.
 
-The remaining production integrations are external: move the ledger to Postgres/Neon, supply X API credentials to the command processor, and connect a test USDC treasury on Solana devnet.
+Set DATABASE_URL to use the Neon/Postgres adapter. It creates a shared prototype state table and rejects conflicting writes instead of overwriting balances. Vercel requires DATABASE_URL; local development falls back to the JSON store. The hosted adapter has not yet been verified against a live database.
+
+This remains a shared demo with simulated identities and wallet claims. The database adapter is for prototype persistence, not a production custody ledger. Real X identity checks, individual user sessions, transaction accounting, and USDC settlement remain to be implemented before real funds are supported.
