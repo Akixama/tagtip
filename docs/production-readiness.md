@@ -14,6 +14,7 @@ TagTip is a custodial-product sandbox, not a deployed custody service. No custom
 - Disabled-by-default X mention reader with chronological processing, recipient-ID lookup, cursor checkpoints, request budgets and rate-limit backoff.
 - Protected operation endpoints, bounded per-instance rate limits and queues, body limits and browser security headers.
 - Finalized devnet USDC deposit evidence checks with account-bound signature receipts, duplicate protection and a separate devnet balance. No demo-credit conversion or mainnet payout is possible. Receipts cover the whole supported transaction, not individual instructions.
+- Devnet withdrawal reservations require a recent wallet proof, enforce a pilot cap, retain idempotency and can be cancelled before broadcast. No transaction signer is configured.
 - Allowlisted Vercel public build and GitHub test/build workflow.
 
 Mocked tests do not prove external-service behavior. Browser QA uses isolated Alice/Bob fixtures, not live X identities.

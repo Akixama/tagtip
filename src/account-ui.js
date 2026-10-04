@@ -56,6 +56,12 @@ function render() {
   for (const item of (state.devnetDeposits || []).slice().reverse()) {
     record(deposits, `+${format(item.amountUnits)} devnet USDC`, `${item.status.replaceAll("_", " ")} · signature ${item.signature.slice(0, 8)}…${item.signature.slice(-8)}`);
   }
+  const devnetWithdrawals = $("#devnetWithdrawals"); devnetWithdrawals.replaceChildren();
+  for (const item of (state.devnetWithdrawals || []).slice().reverse()) {
+    record(devnetWithdrawals, `${format(item.amountUnits)} devnet USDC · ${item.status.replaceAll("_", " ")}`,
+      `${item.wallet.slice(0, 6)}…${item.wallet.slice(-6)} · no transaction broadcast`, item.status === "devnet_reserved" ? {
+        label: "Cancel", run: () => mutate(`/api/account/devnet/withdrawals/${item.id}/cancel`, {}, "Devnet reservation cancelled.") } : null);
+  }
 }
 async function mutate(path, body, message) {
   const result = await api(path, body); state = result.state; render(); notice(message);
@@ -103,6 +109,12 @@ $("#devnetDepositForm").addEventListener("submit", event => { event.preventDefau
   const signature = $("#depositSignature").value.trim();
   await mutate("/api/account/devnet/deposits", { signature }, "Finalized devnet deposit credited to your separate devnet balance.");
   $("#depositSignature").value = "";
+}); });
+$("#devnetWithdrawForm").addEventListener("submit", event => { event.preventDefault(); run(async () => {
+  const payload = { amount: $("#devnetWithdrawAmount").value.trim(), wallet: $("#wallet").value.trim() };
+  const key = intent("devnet-withdrawal", payload);
+  await mutate("/api/account/devnet/withdrawals", { ...payload, requestId: key.id }, "Devnet withdrawal reserved. No transaction has been broadcast.");
+  key.complete();
 }); });
 $("#logout").addEventListener("click", () => run(async () => { await api("/api/auth/logout", {}); location.replace("account.html"); }));
 try {

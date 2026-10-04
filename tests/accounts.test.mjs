@@ -112,3 +112,20 @@ test("finalized devnet deposits credit a separate balance once", () => {
   assert.equal(ledger.reconcile().ok, true);
   assert.throws(() => ledger.creditDevnetDeposit("2", evidence), /verified account wallet|another account/);
 });
+test("devnet withdrawals require recent wallet proof and remain cancellable before broadcast", () => {
+  let clock = Date.now();
+  const ledger = createAccountLedger(undefined, () => clock);
+  ledger.touch({ id: "1", username: "alice" });
+  const proof = testWallet(), challenge = ledger.walletChallenge("1", proof.address, "https://tagtip.example");
+  ledger.verifyWallet("1", proof.sign(challenge.message));
+  ledger.creditDevnetDeposit("1", { ok: true, cluster: "devnet", commitment: "finalized", ledgerCredited: false,
+    realFundsEnabled: false, signature: "4".repeat(88), amountUnits: 7_000_000, depositorWallet: proof.address, mint: "mint", slot: 43 });
+  const first = ledger.reserveDevnetWithdrawal("1", "2", proof.address, "devnet-withdraw-1");
+  assert.equal(ledger.reserveDevnetWithdrawal("1", "2", proof.address, "devnet-withdraw-1").duplicate, true);
+  assert.equal(ledger.snapshot("1").devnetAvailableUnits, 5_000_000);
+  ledger.cancelDevnetWithdrawal(first.withdrawal.id, "1");
+  assert.equal(ledger.snapshot("1").devnetAvailableUnits, 7_000_000);
+  clock += 16 * 60_000;
+  assert.throws(() => ledger.reserveDevnetWithdrawal("1", "1", proof.address, "devnet-withdraw-2"), /Verify the wallet again/);
+  assert.equal(ledger.reconcile().ok, true);
+});

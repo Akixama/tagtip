@@ -22,6 +22,7 @@ export function createAccountLedger(seed, now = Date.now) {
   state.devnetBalances ||= {};
   state.devnetDeposits ||= {};
   state.devnetJournal ||= [];
+  state.devnetWithdrawals ||= {};
   const balanceKey = id => `user:${id}`;
   const balance = key => state.balances[key] || 0;
   function move(from, to, units, reason, reference) {
@@ -76,6 +77,7 @@ export function createAccountLedger(seed, now = Date.now) {
     return { mode: "sandbox", realFundsEnabled: false, account: structuredClone(user), availableUnits: balance(balanceKey(id)),
       devnetAvailableUnits: devnetBalance(devnetBalanceKey(id)),
       devnetDeposits: Object.values(state.devnetDeposits).filter(item => item.accountId === id).map(item => structuredClone(item)),
+      devnetWithdrawals: Object.values(state.devnetWithdrawals).filter(item => item.accountId === id).map(item => structuredClone(item)),
       tips: Object.values(state.tips).filter(tip => tip.senderId === id || tip.recipientId === id).map(tip => structuredClone(tip)),
       withdrawals: Object.values(state.withdrawals).filter(item => item.accountId === id).map(item => structuredClone(item)),
       journal: state.journal.filter(item => item.entries.some(entry => entry.account === balanceKey(id))).map(item => structuredClone(item)),
@@ -103,6 +105,32 @@ export function createAccountLedger(seed, now = Date.now) {
         creditedAt: new Date(now()).toISOString() };
       state.devnetDeposits[evidence.signature] = deposit;
       return { deposit: structuredClone(deposit), duplicate: false };
+    },
+    reserveDevnetWithdrawal(id, amount, wallet, requestId) {
+      const user = account(id);
+      if (wallet !== user.verifiedWallet) reject("Verify ownership of the devnet withdrawal wallet first.");
+      if (!user.walletVerifiedAt || Date.parse(user.walletVerifiedAt) + 15 * 60_000 < now()) reject("Verify the wallet again before reserving a devnet withdrawal.");
+      if (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(requestId)) reject("Withdrawal idempotency key required.");
+      const units = usdcUnits(amount);
+      if (units > 100_000_000) reject("Devnet pilot withdrawals are capped at 100 USDC.");
+      const existing = Object.values(state.devnetWithdrawals).find(item => item.accountId === id && item.requestId === requestId);
+      if (existing) {
+        if (existing.amountUnits !== units || existing.wallet !== wallet) reject("Withdrawal key was used for a different request.");
+        return { withdrawal: structuredClone(existing), duplicate: true };
+      }
+      const withdrawalId = randomUUID();
+      devnetMove(devnetBalanceKey(id), `withdrawal:${withdrawalId}`, units, "devnet_withdrawal_reserved", withdrawalId);
+      const withdrawal = { id: withdrawalId, accountId: id, amountUnits: units, wallet, requestId,
+        status: "devnet_reserved", createdAt: new Date(now()).toISOString() };
+      state.devnetWithdrawals[withdrawalId] = withdrawal;
+      return { withdrawal: structuredClone(withdrawal), duplicate: false };
+    },
+    cancelDevnetWithdrawal(id, userId) {
+      const withdrawal = state.devnetWithdrawals[id];
+      if (!withdrawal || withdrawal.accountId !== userId) reject("Devnet withdrawal not found.");
+      if (withdrawal.status !== "devnet_reserved") reject("Devnet withdrawal cannot be cancelled.");
+      devnetMove(`withdrawal:${id}`, devnetBalanceKey(userId), withdrawal.amountUnits, "devnet_withdrawal_cancelled", id);
+      withdrawal.status = "cancelled";
     },
     fund(id) {
       const user = account(id);
@@ -230,6 +258,10 @@ export function createAccountLedger(seed, now = Date.now) {
       for (const key of new Set([...Object.keys(expectedDevnet), ...Object.keys(state.devnetBalances)])) {
         if (!Number.isSafeInteger(devnetBalance(key)) || (expectedDevnet[key] || 0) !== devnetBalance(key)) reject("Devnet ledger reconciliation failed.");
         if (key !== "asset:devnet-treasury" && devnetBalance(key) < 0) reject("Negative devnet balance.");
+      }
+      for (const withdrawal of Object.values(state.devnetWithdrawals)) {
+        if (!["devnet_reserved", "cancelled"].includes(withdrawal.status) || !Number.isSafeInteger(withdrawal.amountUnits) || withdrawal.amountUnits <= 0) reject("Invalid devnet withdrawal record.");
+        if (devnetBalance(`withdrawal:${withdrawal.id}`) !== (withdrawal.status === "devnet_reserved" ? withdrawal.amountUnits : 0)) reject("Devnet withdrawal reservation does not match its record.");
       }
       return { ok: true, journalEntries: state.journal.length, totalUnits: Object.values(state.balances).reduce((sum, value) => sum + value, 0) };
     },

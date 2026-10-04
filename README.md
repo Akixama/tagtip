@@ -64,6 +64,8 @@ Run `npm run build` for Vercel. It copies only nine allowlisted browser assets i
 
 The devnet evidence verifier accepts finalized legacy SPL `transferChecked` deposits of Circle's devnet USDC mint only. It checks network genesis, signer, token-account ownership, decimals, treasury destination and net balance change. Signed-in users can submit a signature to `POST /api/account/devnet/deposits` after proving wallet ownership. Valid evidence credits a separate devnet balance exactly once; it never changes demo credits and cannot enable a mainnet payout. The protected operations endpoint remains evidence-only. Configure a dedicated devnet treasury owner and token account before using either route. Never send mainnet funds.
 
+Devnet withdrawals can be reserved against that balance after a wallet proof less than 15 minutes old. Reservations are idempotent, capped at 100 devnet USDC and cancellable until a future custody worker records a broadcast. The current application does not sign or submit transactions.
+
 Use Node 24+. `npm run dev`, `npm run check-config`, and `npm run ops -- status` load an ignored `.env` if present. The configuration checker prints missing variable names, never values. Operation choices are `status`, `readiness`, `reconcile`, `expire`, and `process-x`. Do not invoke `process-x` until you have approved your X API credit budget.
 
 Per-instance request limits, content-security policy, anti-framing headers, and 16KB body limits are applied. These are sandbox safeguards, not substitutes for distributed edge protection or a security review.

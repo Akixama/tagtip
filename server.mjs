@@ -221,10 +221,15 @@ async function handleRequest(request, response) {
         try { evidence = await depositVerifier.verify({ signature: body.signature, depositorWallet: verifiedWallet }); }
         catch { return json(response, 422, { ok: false, reason: "Finalized devnet USDC deposit could not be verified. No balance was credited." }); }
         result = accounts.creditDevnetDeposit(user.id, evidence);
+      } else if (requestPath === "/api/account/devnet/withdrawals" && request.method === "POST") {
+        const body = await readJson(request);
+        result = accounts.reserveDevnetWithdrawal(user.id, body.amount, body.wallet, body.requestId);
       } else {
         const claim = requestPath.match(/^\/api\/account\/tips\/([a-f0-9-]{36})\/claim$/);
         const cancel = requestPath.match(/^\/api\/account\/withdrawals\/([a-f0-9-]{36})\/cancel$/);
+        const cancelDevnet = requestPath.match(/^\/api\/account\/devnet\/withdrawals\/([a-f0-9-]{36})\/cancel$/);
         if (claim && request.method === "POST") result.tip = accounts.claim(claim[1], user.id);
+        else if (cancelDevnet && request.method === "POST") accounts.cancelDevnetWithdrawal(cancelDevnet[1], user.id);
         else if (cancel && request.method === "POST") accounts.cancelWithdrawal(cancel[1], user.id);
         else return json(response, 404, { ok: false, reason: "Not found." });
       }

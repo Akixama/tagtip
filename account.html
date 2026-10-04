@@ -34,6 +34,9 @@
             <article class="panel account-form" id="devnetDepositPanel" hidden><p class="micro-label">DEVNET DEPOSIT PILOT</p><h2>Verify a test-network deposit.</h2><p class="account-help">Send Circle devnet USDC from your verified wallet to the configured devnet treasury, then paste the finalized signature. Mainnet transactions are rejected.</p>
               <form id="devnetDepositForm"><label>Finalized transaction signature<input id="depositSignature" autocomplete="off" placeholder="Solana devnet signature" required/></label><button class="button ghost" type="submit">Verify devnet deposit</button></form>
               <div id="devnetDeposits" class="account-records"></div>
+              <hr/><p class="micro-label">DEVNET WITHDRAWAL QUEUE</p><p class="account-help">Reserve devnet USDC for a payout after a fresh wallet proof. No transaction is broadcast until the custody worker is configured.</p>
+              <form id="devnetWithdrawForm"><label>Amount · devnet USDC<input id="devnetWithdrawAmount" inputmode="decimal" placeholder="2.00" required/></label><button class="button ghost" type="submit">Reserve devnet withdrawal</button></form>
+              <div id="devnetWithdrawals" class="account-records"></div>
             </article>
           </div>
           <div class="command-column">
