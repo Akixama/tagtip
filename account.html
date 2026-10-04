@@ -27,7 +27,8 @@
               <p class="account-help">Fees: 0.5%, minimum 0.01 USDC, maximum 1 USDC. Daily limits count tip amounts; the fee is additional.</p>
             </article>
             <article class="panel account-form"><p class="micro-label">WITHDRAWAL SANDBOX</p><h2>Reserve. Never send.</h2><p class="account-help">This tests the withdrawal queue. No blockchain transaction occurs. You can cancel and release the reservation.</p>
-              <form id="withdrawForm"><label>Amount · USDC<input id="withdrawAmount" inputmode="decimal" placeholder="5.00" required/></label><label>Solana destination<input id="wallet" autocomplete="off" placeholder="Your public wallet address" required/></label><button class="button ghost" type="submit">Reserve test withdrawal</button></form>
+              <button class="button ghost" id="verifyWallet" type="button">Verify wallet with Phantom</button><p id="walletStatus" class="account-help">Sign an ownership message. No transaction or spending approval.</p>
+              <form id="withdrawForm"><label>Amount · USDC<input id="withdrawAmount" inputmode="decimal" placeholder="5.00" required/></label><label>Verified Solana destination<input id="wallet" readonly placeholder="Verify your wallet first" required/></label><button class="button ghost" type="submit">Reserve test withdrawal</button></form>
               <div id="withdrawals" class="account-records"></div>
             </article>
           </div>

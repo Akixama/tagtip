@@ -28,6 +28,8 @@ function render() {
   $("#perTip").value = String(state.account.policy.perTipUnits / 1_000_000);
   $("#perDay").value = String(state.account.policy.perDayUnits / 1_000_000);
   $("#paused").checked = state.account.paused;
+  $("#wallet").value = state.account.verifiedWallet || "";
+  $("#walletStatus").textContent = state.account.verifiedWallet ? "Wallet ownership verified. Withdrawals remain simulated." : "Sign an ownership message. No transaction or spending approval.";
   const tips = $("#tips"); tips.replaceChildren();
   for (const tip of state.tips.slice().reverse()) {
     const incoming = tip.recipientId === state.account.id;
@@ -69,6 +71,17 @@ function intent(kind, payload) {
   return { id, complete: () => sessionStorage.removeItem(key) };
 }
 $("#fund").addEventListener("click", () => run(() => mutate("/api/account/fund", {}, "25 test USDC added. No wallet charged.")));
+$("#verifyWallet").addEventListener("click", () => run(async () => {
+  const provider = window.phantom?.solana || window.solana;
+  if (!provider?.isPhantom) throw new Error("Open this page in a browser with Phantom installed. Never enter your seed phrase here.");
+  const connected = await provider.connect();
+  const wallet = connected.publicKey.toString();
+  const result = await api("/api/account/wallet/challenge", { wallet });
+  notice("Check the ownership message in Phantom, then approve it yourself. No transaction will be sent.");
+  const signed = await provider.signMessage(new TextEncoder().encode(result.challenge.message), "utf8");
+  const signature = btoa(Array.from(signed.signature, byte => String.fromCharCode(byte)).join(""));
+  await mutate("/api/account/wallet/verify", { signature }, "Wallet verified. No spending access granted.");
+}));
 $("#refresh").addEventListener("click", () => run(async () => { state = (await api("/api/account")).state; render(); notice("Account refreshed."); }));
 $("#policyForm").addEventListener("submit", event => { event.preventDefault(); run(() => mutate("/api/account/policy", {
   perTip: $("#perTip").value.trim(), perDay: $("#perDay").value.trim(), paused: $("#paused").checked }, "Spending controls saved.")); });

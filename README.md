@@ -46,6 +46,8 @@ Identity data is stored separately from demo funds (`identity` Postgres row or i
 
 Open `/account.html`. Signed-in users receive separate accounts keyed by their X user IDs. Each may add 25 test USDC once, configure limits, pause tipping, create pending tips, claim incoming tips, and reserve/cancel mock withdrawals. All amounts use integer millionths of USDC; a balanced journal records every movement. Reconciliation runs before and after account mutations.
 
+Withdrawal destinations require a Phantom ownership message. The server verifies Ed25519 signatures against the exact public key. Challenges include app origin, X user ID, wallet, expiry and nonce; expire after five minutes; and cannot be reused. No private key, recovery phrase, spending approval or blockchain transaction is requested.
+
 Only the authenticated recipient ID may claim a tip. Claiming credits the recipient's internal test balance. Seven-day expiry refunds both amount and reserved fee; fees become earned only on claim. Web sandbox recipients must sign in first. The ledger also supports pending recipients resolved to an X ID before registration, for processor integration.
 
 `accounts-sandbox` Postgres state or ignored local `data/accounts-sandbox.json` is independent of the shared demo and identity state. It remains a snapshot-based sandbox, not a production treasury ledger. Withdrawals never create or submit Solana transactions. Do not send real USDC to this prototype.
@@ -59,3 +61,7 @@ The worker fetches at most three mention pages and makes at most ten X requests 
 Other protected endpoints: `GET /api/ops/status`, `GET /api/ops/reconcile`, and `POST /api/ops/expire`. No scheduler is installed automatically, so there are no surprise recurring API charges. Use your scheduler to POST only after validating configuration and setting a budget.
 
 Run `npm run build` for Vercel. It copies only nine allowlisted browser assets into `public/`; backend modules and local data are not public deployment assets. Vercel still requires `DATABASE_URL`. Hosted database, OAuth, and worker integrations require live verification.
+
+Per-instance request limits, content-security policy, anti-framing headers, and 16KB body limits are applied. These are sandbox safeguards, not substitutes for distributed edge protection or a security review.
+
+For isolated visual QA only: `node scripts/preview-fixture.mjs` starts sample Alice/Bob accounts on loopback port 4179 using temporary data. It deliberately injects a sample session and refuses production/Vercel. It must never be deployed or exposed beyond localhost. Normal `npm run dev` does not use fixture authentication.

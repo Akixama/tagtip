@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createAccountLedger, usdcUnits, feeUnits } from "../src/accounts.js";
+import { testWallet } from "./helpers/wallet.js";
 
 const identity = (id, username) => ({ id, username });
 function fixture() {
@@ -41,6 +42,12 @@ test("funding and processor events cannot double charge", () => {
   assert.throws(() => send({ amount: "4" }), /different command/);
   assert.equal(ledger.snapshot("1").availableUnits, 19_970_000);
 });
+test("special object-property names remain idempotent", () => {
+  const { ledger, send } = fixture();
+  send({ eventId: "__proto__" });
+  assert.equal(send({ eventId: "__proto__" }).duplicate, true);
+  assert.equal(ledger.snapshot("1").availableUnits, 19_970_000);
+});
 test("expiry refunds amount and fee once and blocks a late claim", () => {
   const { ledger, send, advance } = fixture();
   const { tip } = send(); advance(7);
@@ -62,7 +69,9 @@ test("pause, limits, self-tips and overdrafts are blocked", () => {
 });
 test("withdrawals reserve money, are idempotent, and cancel safely", () => {
   const { ledger } = fixture();
-  const wallet = "2NPvC47BoysYXVt4qikqqBQVGuh2yRSgX84pA2U7g1sW";
+  const proof = testWallet(), wallet = proof.address;
+  const challenge = ledger.walletChallenge("1", wallet, "https://tagtip.example");
+  ledger.verifyWallet("1", proof.sign(challenge.message));
   const first = ledger.withdraw("1", "20", wallet, "request-1");
   assert.equal(ledger.withdraw("1", "20", wallet, "request-1").id, first.id);
   assert.throws(() => ledger.withdraw("1", "6", wallet, "request-2"), /Insufficient/);

@@ -9,6 +9,7 @@ import { createAuthService, readCookies } from "./src/auth.js";
 import { createAccountLedger } from "./src/accounts.js";
 import { parseTipCommand } from "./src/core.js";
 import { createXProcessor } from "./src/x-processor.js";
+import { createRateLimiter } from "./src/rate-limit.js";
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
@@ -18,6 +19,7 @@ const storageType = databaseUrl ? "postgres" : "file";
 const store = databaseUrl ? createPostgresStore(databaseUrl) : createFileStore(process.env.DEMO_DATA_FILE || join(root, "data", "demo-ledger.json"));
 let ledger = createDemoLedger(await store.load());
 let requestQueue = Promise.resolve();
+const rateLimiter = createRateLimiter();
 const processorSecret = process.env.X_PROCESSOR_SECRET || "";
 const authStore = databaseUrl ? createPostgresStore(databaseUrl, "identity") : createFileStore(process.env.AUTH_DATA_FILE || join(root, "data", "identity.json"));
 const auth = createAuthService({ store: authStore, clientId: process.env.X_CLIENT_ID,
@@ -59,7 +61,7 @@ const readJson = async (request) => {
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 16384) throw new Error("Request body exceeds 16KB.");
+    if (size > 16384) { const error = new Error("Request body exceeds 16KB."); error.code = "BODY_TOO_LARGE"; throw error; }
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
@@ -75,6 +77,8 @@ const securityHeaders = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+  "X-Frame-Options": "DENY",
 };
 
 async function handleRequest(request, response) {
@@ -82,6 +86,12 @@ async function handleRequest(request, response) {
   const parsedUrl = new URL(request.url, `http://${request.headers.host}`);
   const rewrittenPath = parsedUrl.pathname === "/api/index" ? parsedUrl.searchParams.get("path") : null;
   const requestPath = rewrittenPath ? `/api/${rewrittenPath}` : parsedUrl.pathname;
+  if (process.env.VERCEL) response.setHeader("Strict-Transport-Security", "max-age=31536000");
+  if (requestPath.startsWith("/api/") && !requestPath.startsWith("/api/ops/") && requestPath !== "/api/health") {
+    const ip = process.env.VERCEL ? String(request.headers["x-forwarded-for"] || request.socket?.remoteAddress || "unknown").split(",")[0].trim() : request.socket?.remoteAddress || "unknown";
+    const limited = rateLimiter.check(`${requestPath.startsWith("/api/auth/x/") ? "login" : "api"}:${ip}`, requestPath.startsWith("/api/auth/x/") ? 10 : 120);
+    if (!limited.allowed) { response.setHeader("Retry-After", limited.retryAfter); return json(response, 429, { ok: false, reason: "Too many requests. Please wait before trying again." }); }
+  }
   if (request.method === "POST" && request.headers.origin) {
     const expectedOrigin = process.env.APP_ORIGIN || `${process.env.VERCEL ? "https" : "http"}://${request.headers.host}`;
     if (request.headers.origin !== expectedOrigin) return json(response, 403, { ok: false, reason: "Origin not allowed." });
@@ -164,10 +174,16 @@ async function handleRequest(request, response) {
         if (!recipient) return json(response, 422, { ok: false, reason: "For this sandbox, the recipient must sign in with X first. Unregistered-recipient resolution will be handled by the X processor." });
         accounts.touch(recipient);
         result = accounts.send({ senderId: user.id, recipientId: recipient.id, recipientHandle: recipient.username,
-          amount: String(parsed.amount), eventId: body.requestId });
+          amount: String(parsed.amount), eventId: typeof body.requestId === "string" ? `web-${user.id}-${body.requestId}` : body.requestId });
       } else if (requestPath === "/api/account/withdrawals" && request.method === "POST") {
         const body = await readJson(request);
         result.withdrawal = accounts.withdraw(user.id, body.amount, body.wallet, body.requestId);
+      } else if (requestPath === "/api/account/wallet/challenge" && request.method === "POST") {
+        const body = await readJson(request);
+        result.challenge = accounts.walletChallenge(user.id, body.wallet, process.env.APP_ORIGIN);
+      } else if (requestPath === "/api/account/wallet/verify" && request.method === "POST") {
+        const body = await readJson(request);
+        accounts.verifyWallet(user.id, body.signature);
       } else {
         const claim = requestPath.match(/^\/api\/account\/tips\/([a-f0-9-]{36})\/claim$/);
         const cancel = requestPath.match(/^\/api\/account\/withdrawals\/([a-f0-9-]{36})\/cancel$/);
@@ -210,6 +226,7 @@ async function handleRequest(request, response) {
       const result = ledger.createTip(body.command);
       return persist(response, result.ok ? 201 : 422, result);
     } catch (error) {
+      if (error.code === "BODY_TOO_LARGE") throw error;
       if (error.code === "LEDGER_CONFLICT") throw error;
       return json(response, 400, { ok: false, reason: "Invalid JSON body." });
     }
@@ -226,6 +243,7 @@ async function handleRequest(request, response) {
       const result = ledger.createTip(body.text, { source: "x", sourceId: String(body.tweetId) });
       return persist(response, result.ok ? (result.duplicate ? 200 : 201) : 422, result);
     } catch (error) {
+      if (error.code === "BODY_TOO_LARGE") throw error;
       if (error.code === "LEDGER_CONFLICT") throw error;
       return json(response, 400, { ok: false, reason: "Invalid JSON body." });
     }
@@ -268,9 +286,9 @@ async function handleRequest(request, response) {
 
 export function requestHandler(request, response) {
   const run = requestQueue.then(() => handleRequest(request, response)).catch((error) => {
-    if (!response.headersSent) json(response, error.code === "LEDGER_CONFLICT" ? 409 : 503, {
+    if (!response.headersSent) json(response, error.code === "BODY_TOO_LARGE" ? 413 : error.code === "LEDGER_CONFLICT" ? 409 : 503, {
       ok: false,
-      reason: error.code === "LEDGER_CONFLICT" ? "Another request updated this balance. Please retry." : "Service temporarily unavailable.",
+      reason: error.code === "BODY_TOO_LARGE" ? "Request body exceeds 16KB." : error.code === "LEDGER_CONFLICT" ? "Another request updated this balance. Please retry." : "Service temporarily unavailable.",
     });
   });
   requestQueue = run;

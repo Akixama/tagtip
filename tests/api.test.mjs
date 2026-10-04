@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { createFileStore } from "../src/file-store.js";
+import { testWallet } from "./helpers/wallet.js";
 
 test("HTTP demo lifecycle and security boundaries", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "tagtip-api-"));
@@ -103,7 +104,12 @@ test("HTTP demo lifecycle and security boundaries", async (t) => {
     assert.equal(charlie.state.availableUnits, 0);
     assert.equal(charlie.state.tips.length, 0);
     assert.equal(charlie.state.journal.length, 0);
-    const withdrawal = await request("/api/account/withdrawals", { amount: "2", wallet: "2NPvC47BoysYXVt4qikqqBQVGuh2yRSgX84pA2U7g1sW", requestId: "withdraw-1" }, headers("bob"));
+    const wallet = testWallet();
+    const challengeResponse = await request("/api/account/wallet/challenge", { wallet: wallet.address }, headers("bob"));
+    const { challenge } = await challengeResponse.json();
+    assert.equal((await request("/api/account/wallet/verify", { signature: wallet.sign(challenge.message) }, headers("alice"))).status, 422);
+    assert.equal((await request("/api/account/wallet/verify", { signature: wallet.sign(challenge.message) }, headers("bob"))).status, 200);
+    const withdrawal = await request("/api/account/withdrawals", { amount: "2", wallet: wallet.address, requestId: "withdraw-1" }, headers("bob"));
     const withdrawalId = (await withdrawal.json()).withdrawal.id;
     assert.equal((await request(`/api/account/withdrawals/${withdrawalId}/cancel`, {}, headers("alice"))).status, 422);
     assert.equal((await request(`/api/account/withdrawals/${withdrawalId}/cancel`, {}, headers("bob"))).status, 200);

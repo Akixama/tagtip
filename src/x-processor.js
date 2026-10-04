@@ -35,7 +35,7 @@ export function createXProcessor({ token, botId, botHandle = "TagTip", initialSi
       let pagination;
       for (let page = 0; page < 3; page++) {
         const url = new URL(`https://api.x.com/2/users/${botId}/mentions`);
-        url.search = new URLSearchParams({ since_id: checkpoint.sinceId, max_results: "100", "tweet.fields": "author_id,created_at" }).toString();
+        url.search = new URLSearchParams({ since_id: checkpoint.sinceId, max_results: "100", "post.fields": "created_at", expansions: "author_id" }).toString();
         if (pagination) url.searchParams.set("pagination_token", pagination);
         const body = await get(url.href);
         for (const post of body.data || []) {

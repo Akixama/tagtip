@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { decodeSolanaAddress, verifyWalletProof } from "./wallet-proof.js";
 
 const DAY = 86_400_000;
 const validId = id => typeof id === "string" && /^\d{1,30}$/.test(id);
@@ -90,7 +91,7 @@ export function createAccountLedger(seed, now = Date.now) {
       if (typeof eventId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(eventId)) reject("An idempotency key is required.");
       if (!/^[A-Za-z0-9_]{1,15}$/.test(recipientHandle || "")) reject("Invalid recipient handle.");
       const amountUnits = usdcUnits(amount);
-      const previous = state.events[eventId];
+      const previous = Object.hasOwn(state.events, eventId) ? state.events[eventId] : null;
       if (previous) {
         const tip = state.tips[previous];
         if (tip.senderId !== senderId || tip.recipientId !== recipientId || tip.amountUnits !== amountUnits) reject("Idempotency key already used for a different command.");
@@ -105,7 +106,9 @@ export function createAccountLedger(seed, now = Date.now) {
       const tip = { id, senderId, senderHandle: user.username, recipientId, recipientHandle,
         amountUnits, feeUnits: fee, status: "pending", spendingDay: user.spendingDay,
         createdAt: new Date(now()).toISOString(), expiresAt: now() + 7 * DAY };
-      state.tips[id] = tip; state.events[eventId] = id; user.spentUnits += amountUnits;
+      state.tips[id] = tip;
+      Object.defineProperty(state.events, eventId, { value: id, enumerable: true, writable: true, configurable: true });
+      user.spentUnits += amountUnits;
       return { tip: structuredClone(tip), duplicate: false };
     },
     claim(id, recipientId) {
@@ -119,9 +122,27 @@ export function createAccountLedger(seed, now = Date.now) {
       tip.status = "credited"; tip.claimedAt = new Date(now()).toISOString();
       return structuredClone(tip);
     },
+    walletChallenge(id, wallet, origin) {
+      const user = account(id);
+      try { decodeSolanaAddress(wallet); } catch { reject("Invalid Solana wallet address."); }
+      if (!origin) reject("Wallet verification origin not configured.");
+      const expiresAt = now() + 300_000;
+      const message = `${origin} requests wallet ownership verification for TagTip.\n\nX user ID: ${id}\nWallet: ${wallet}\nMode: sandbox (no real funds)\nNonce: ${randomUUID()}\nIssued: ${new Date(now()).toISOString()}\nExpires: ${new Date(expiresAt).toISOString()}\n\nThis signature proves ownership only. It does not approve a transaction or spending access.`;
+      user.walletChallenge = { wallet, message, expiresAt };
+      return structuredClone(user.walletChallenge);
+    },
+    verifyWallet(id, signature) {
+      const user = account(id), challenge = user.walletChallenge;
+      if (!challenge || challenge.expiresAt <= now()) reject("Wallet proof expired. Start again.");
+      if (!verifyWalletProof(challenge.wallet, challenge.message, signature)) reject("Wallet signature is invalid.");
+      user.verifiedWallet = challenge.wallet;
+      user.walletVerifiedAt = new Date(now()).toISOString();
+      delete user.walletChallenge;
+    },
     withdraw(id, amount, wallet, requestId) {
-      account(id);
+      const user = account(id);
       if (typeof wallet !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) reject("Enter a Solana wallet address.");
+      if (wallet !== user.verifiedWallet) reject("Verify ownership of the withdrawal wallet first.");
       if (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(requestId)) reject("Withdrawal idempotency key required.");
       const units = usdcUnits(amount);
       const existing = Object.values(state.withdrawals).find(item => item.accountId === id && item.requestId === requestId);
