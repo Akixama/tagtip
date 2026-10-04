@@ -13,6 +13,7 @@ import { createXProcessor } from "./src/x-processor.js";
 import { createRateLimiter } from "./src/rate-limit.js";
 import { createDevnetDepositVerifier } from "./src/devnet-deposit.js";
 import { readinessReport } from "./src/readiness.js";
+import { createDepositReceipts } from "./src/deposit-receipts.js";
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
@@ -33,6 +34,7 @@ const auth = createAuthService({ store: authStore, clientId: process.env.X_CLIEN
   clientSecret: process.env.X_CLIENT_SECRET, origin: process.env.APP_ORIGIN });
 const accountStore = databaseUrl ? createPostgresStore(databaseUrl, "accounts-sandbox") : createFileStore(process.env.ACCOUNT_DATA_FILE || join(root, "data", "accounts-sandbox.json"));
 const workerStore = databaseUrl ? createPostgresStore(databaseUrl, "x-worker") : createFileStore(process.env.WORKER_DATA_FILE || join(root, "data", "x-worker.json"));
+const receiptStore = databaseUrl ? createPostgresStore(databaseUrl, "deposit-evidence") : createFileStore(process.env.RECEIPT_DATA_FILE || join(root, "data", "deposit-evidence.json"));
 const depositVerifier = createDevnetDepositVerifier({ rpcUrl: process.env.SOLANA_RPC_URL,
   treasuryTokenAccount: process.env.DEVNET_TREASURY_TOKEN_ACCOUNT, treasuryOwner: process.env.DEVNET_TREASURY_OWNER });
 const worker = createXProcessor({ token: process.env.X_BEARER_TOKEN, botId: process.env.X_BOT_USER_ID,
@@ -131,8 +133,15 @@ async function handleRequest(request, response) {
       const accounts = createAccountLedger(await accountStore.load()); accounts.reconcile();
       const verifiedWallet = accounts.snapshot(body.accountId).account.verifiedWallet;
       if (!verifiedWallet) return json(response, 422, { ok: false, reason: "Account must verify its wallet first." });
-      try { return json(response, 200, await depositVerifier.verify({ signature: body.signature, depositorWallet: verifiedWallet })); }
+      let evidence;
+      try { evidence = await depositVerifier.verify({ signature: body.signature, depositorWallet: verifiedWallet }); }
       catch { return json(response, 422, { ok: false, reason: "Devnet deposit evidence could not be verified. No ledger credit occurred." }); }
+      const receipts = createDepositReceipts(await receiptStore.load() || {});
+      let result;
+      try { result = receipts.record(body.accountId, evidence); }
+      catch { return json(response, 409, { ok: false, reason: "Deposit evidence conflicts with an existing receipt. No ledger credit occurred." }); }
+      await receiptStore.save(receipts.export());
+      return json(response, 200, { ...evidence, receiptStatus: result.receipt.status, duplicate: result.duplicate });
     }
     return json(response, 404, { ok: false, reason: "Not found." });
   }

@@ -13,7 +13,7 @@ TagTip is a custodial-product sandbox, not a deployed custody service. No custom
 - Local persistence and Neon snapshot adapter with monotonic compare-and-swap revisions.
 - Disabled-by-default X mention reader with chronological processing, recipient-ID lookup, cursor checkpoints, request budgets and rate-limit backoff.
 - Protected operation endpoints, bounded per-instance rate limits and queues, body limits and browser security headers.
-- Read-only finalized devnet USDC deposit evidence checks; no deposit crediting.
+- Read-only finalized devnet USDC deposit evidence checks with persisted, account-bound signature receipts and duplicate protection; no deposit crediting. Receipts cover the whole supported transaction, not individual instructions.
 - Allowlisted Vercel public build and GitHub test/build workflow.
 
 Mocked tests do not prove external-service behavior. Browser QA uses isolated Alice/Bob fixtures, not live X identities.

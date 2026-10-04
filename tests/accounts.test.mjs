@@ -86,3 +86,13 @@ test("reconciliation catches corrupted balances", () => {
   const seed = ledger.export(); seed.balances["user:1"]++;
   assert.throws(() => createAccountLedger(seed).reconcile(), /reconciliation/);
 });
+test("reconciliation checks reservations even when the journal remains balanced", () => {
+  const { ledger, send } = fixture();
+  const { tip } = send();
+  const seed = ledger.export();
+  seed.tips[tip.id].status = "credited";
+  assert.throws(() => createAccountLedger(seed).reconcile(), /reservation/);
+  const unsafe = ledger.export();
+  unsafe.journal[0].entries[0].units = NaN;
+  assert.throws(() => createAccountLedger(unsafe).reconcile(), /Invalid journal/);
+});

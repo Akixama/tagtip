@@ -167,12 +167,24 @@ export function createAccountLedger(seed, now = Date.now) {
     reconcile() {
       const expected = {};
       for (const item of state.journal) {
+        if (!Array.isArray(item.entries) || item.entries.length !== 2 || item.entries.some(entry =>
+          typeof entry.account !== "string" || !Number.isSafeInteger(entry.units) || entry.units === 0)) reject("Invalid journal entry.");
         if (item.entries.reduce((sum, entry) => sum + entry.units, 0) !== 0) reject("Unbalanced journal entry.");
         for (const entry of item.entries) expected[entry.account] = (expected[entry.account] || 0) + entry.units;
       }
       for (const key of new Set([...Object.keys(expected), ...Object.keys(state.balances)])) {
+        if (!Number.isSafeInteger(balance(key))) reject("Unsafe ledger balance.");
         if ((expected[key] || 0) !== balance(key)) reject("Ledger reconciliation failed.");
         if (key !== "sandbox:issuance" && balance(key) < 0) reject("Negative balance.");
+      }
+      for (const tip of Object.values(state.tips)) {
+        if (!["pending", "credited", "expired"].includes(tip.status) || !Number.isSafeInteger(tip.amountUnits) || tip.amountUnits <= 0 ||
+          !Number.isSafeInteger(tip.feeUnits) || tip.feeUnits <= 0) reject("Invalid tip record.");
+        if (balance(`tip:${tip.id}`) !== (tip.status === "pending" ? tip.amountUnits + tip.feeUnits : 0)) reject("Tip reservation does not match its record.");
+      }
+      for (const withdrawal of Object.values(state.withdrawals)) {
+        if (!["sandbox_reserved", "cancelled"].includes(withdrawal.status) || !Number.isSafeInteger(withdrawal.amountUnits) || withdrawal.amountUnits <= 0) reject("Invalid withdrawal record.");
+        if (balance(`withdrawal:${withdrawal.id}`) !== (withdrawal.status === "sandbox_reserved" ? withdrawal.amountUnits : 0)) reject("Withdrawal reservation does not match its record.");
       }
       return { ok: true, journalEntries: state.journal.length, totalUnits: Object.values(state.balances).reduce((sum, value) => sum + value, 0) };
     },
