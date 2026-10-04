@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 
-export function createPostgresStore(connectionString) {
+export function createPostgresStore(connectionString, key = "demo") {
   const sql = neon(connectionString);
   let initialized = false;
   let version = null;
@@ -20,7 +20,7 @@ export function createPostgresStore(connectionString) {
   return {
     async load() {
       await ensureTable();
-      const rows = await sql`SELECT state, updated_at::text AS version FROM tagtip_state WHERE id = 'demo' LIMIT 1`;
+      const rows = await sql`SELECT state, updated_at::text AS version FROM tagtip_state WHERE id = ${key} LIMIT 1`;
       version = rows[0]?.version || null;
       return rows[0]?.state || null;
     },
@@ -29,11 +29,11 @@ export function createPostgresStore(connectionString) {
       const payload = JSON.stringify(value);
       const rows = version ? await sql`
         UPDATE tagtip_state SET state = ${payload}::jsonb, updated_at = clock_timestamp()
-        WHERE id = 'demo' AND updated_at = ${version}::timestamptz
+        WHERE id = ${key} AND updated_at = ${version}::timestamptz
         RETURNING updated_at::text AS version
       ` : await sql`
         INSERT INTO tagtip_state (id, state, updated_at)
-        VALUES ('demo', ${payload}::jsonb, now())
+        VALUES (${key}, ${payload}::jsonb, now())
         ON CONFLICT (id) DO NOTHING
         RETURNING updated_at::text AS version
       `;

@@ -5,16 +5,20 @@ import { pathToFileURL } from "node:url";
 import { createDemoLedger } from "./src/ledger.js";
 import { createFileStore } from "./src/file-store.js";
 import { createPostgresStore } from "./src/postgres-store.js";
+import { createAuthService, readCookies } from "./src/auth.js";
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
 const databaseUrl = process.env.DATABASE_URL || "";
 if (process.env.VERCEL && !databaseUrl) throw new Error("DATABASE_URL is required on Vercel.");
 const storageType = databaseUrl ? "postgres" : "file";
-const store = databaseUrl ? createPostgresStore(databaseUrl) : createFileStore(join(root, "data", "demo-ledger.json"));
+const store = databaseUrl ? createPostgresStore(databaseUrl) : createFileStore(process.env.DEMO_DATA_FILE || join(root, "data", "demo-ledger.json"));
 let ledger = createDemoLedger(await store.load());
 let requestQueue = Promise.resolve();
 const processorSecret = process.env.X_PROCESSOR_SECRET || "";
+const authStore = databaseUrl ? createPostgresStore(databaseUrl, "identity") : createFileStore(process.env.AUTH_DATA_FILE || join(root, "data", "identity.json"));
+const auth = createAuthService({ store: authStore, clientId: process.env.X_CLIENT_ID,
+  clientSecret: process.env.X_CLIENT_SECRET, origin: process.env.APP_ORIGIN });
 const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -60,12 +64,42 @@ async function handleRequest(request, response) {
     if (request.headers.origin !== expectedOrigin) return json(response, 403, { ok: false, reason: "Origin not allowed." });
   }
 
+  if (requestPath.startsWith("/api/auth/")) {
+    const cookies = readCookies(request.headers.cookie);
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Referrer-Policy", "no-referrer");
+    if (requestPath === "/api/auth/me" && request.method === "GET") {
+      return json(response, 200, { configured: auth.configured, account: await auth.me(cookies.tagtip_session), realFundsEnabled: false });
+    }
+    if (requestPath === "/api/auth/logout" && request.method === "POST") {
+      if (!process.env.APP_ORIGIN || request.headers.origin !== process.env.APP_ORIGIN) return json(response, 403, { ok: false, reason: "Origin required." });
+      response.setHeader("Set-Cookie", await auth.logout(cookies.tagtip_session));
+      return json(response, 200, { ok: true });
+    }
+    if (requestPath === "/api/auth/x/start" && request.method === "GET") {
+      if (!auth.configured) return json(response, 503, { ok: false, reason: "X login is not configured yet." });
+      const result = await auth.start();
+      response.setHeader("Set-Cookie", result.cookie);
+      return response.writeHead(302, { Location: result.url }).end();
+    }
+    if (requestPath === "/api/auth/x/callback" && request.method === "GET") {
+      try {
+        const result = await auth.callback({ code: parsedUrl.searchParams.get("code"), nonce: parsedUrl.searchParams.get("state"), browser: cookies.tagtip_oauth });
+        response.setHeader("Set-Cookie", result.cookies);
+        return response.writeHead(303, { Location: "/send.html?login=success" }).end();
+      } catch {
+        return json(response, 400, { ok: false, reason: "X login failed or expired. Please start again." });
+      }
+    }
+    return json(response, 404, { ok: false, reason: "Not found." });
+  }
+
   if (requestPath.startsWith("/api/") && requestPath !== "/api/health") {
     ledger = createDemoLedger(await store.load());
   }
 
   if (requestPath === "/api/health" && request.method === "GET") {
-    return json(response, 200, { ok: true, service: "tagtip", storage: storageType, mode: processorSecret ? "protected" : "demo" });
+    return json(response, 200, { ok: true, service: "tagtip", storage: storageType, mode: "demo", processorEnabled: Boolean(processorSecret), realFundsEnabled: false });
   }
   if (requestPath === "/api/demo" && request.method === "GET") return json(response, 200, ledger.snapshot());
   if (requestPath === "/api/demo/setup" && request.method === "POST") return persist(response, 200, ledger.setup());
@@ -89,7 +123,8 @@ async function handleRequest(request, response) {
   }
 
   if (requestPath === "/api/x/events" && request.method === "POST") {
-    if (processorSecret && request.headers.authorization !== `Bearer ${processorSecret}`) {
+    if (!processorSecret) return json(response, 503, { ok: false, reason: "Processor is not configured." });
+    if (request.headers.authorization !== `Bearer ${processorSecret}`) {
       return json(response, 401, { ok: false, reason: "Invalid processor authorization." });
     }
     try {
