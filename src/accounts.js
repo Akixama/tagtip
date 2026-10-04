@@ -19,6 +19,9 @@ export function feeUnits(amount) {
 export function createAccountLedger(seed, now = Date.now) {
   const state = structuredClone(seed || { version: 1, mode: "sandbox", accounts: {}, balances: {}, tips: {}, events: {}, withdrawals: {}, journal: [] });
   if (state.version !== 1 || state.mode !== "sandbox") reject("Unsupported ledger state.");
+  state.devnetBalances ||= {};
+  state.devnetDeposits ||= {};
+  state.devnetJournal ||= [];
   const balanceKey = id => `user:${id}`;
   const balance = key => state.balances[key] || 0;
   function move(from, to, units, reason, reference) {
@@ -33,6 +36,17 @@ export function createAccountLedger(seed, now = Date.now) {
   function account(id) {
     if (!validId(id) || !state.accounts[id]) reject("Account not found.");
     return state.accounts[id];
+  }
+  const devnetBalanceKey = id => `user:${id}`;
+  const devnetBalance = key => state.devnetBalances[key] || 0;
+  function devnetMove(from, to, units, reason, reference) {
+    if (!Number.isSafeInteger(units) || units <= 0) reject("Invalid devnet journal amount.");
+    if (from !== "asset:devnet-treasury" && devnetBalance(from) < units) reject("Insufficient devnet balance.");
+    state.devnetBalances[from] = devnetBalance(from) - units;
+    state.devnetBalances[to] = devnetBalance(to) + units;
+    state.devnetJournal.push({ id: randomUUID(), at: new Date(now()).toISOString(), reason, reference, entries: [
+      { account: from, units: -units }, { account: to, units },
+    ] });
   }
   function touch(identity) {
     if (!validId(identity?.id) || !/^[A-Za-z0-9_]{1,15}$/.test(identity.username)) reject("Invalid verified identity.");
@@ -60,6 +74,8 @@ export function createAccountLedger(seed, now = Date.now) {
     const user = account(id);
     dayReset(user);
     return { mode: "sandbox", realFundsEnabled: false, account: structuredClone(user), availableUnits: balance(balanceKey(id)),
+      devnetAvailableUnits: devnetBalance(devnetBalanceKey(id)),
+      devnetDeposits: Object.values(state.devnetDeposits).filter(item => item.accountId === id).map(item => structuredClone(item)),
       tips: Object.values(state.tips).filter(tip => tip.senderId === id || tip.recipientId === id).map(tip => structuredClone(tip)),
       withdrawals: Object.values(state.withdrawals).filter(item => item.accountId === id).map(item => structuredClone(item)),
       journal: state.journal.filter(item => item.entries.some(entry => entry.account === balanceKey(id))).map(item => structuredClone(item)),
@@ -70,6 +86,24 @@ export function createAccountLedger(seed, now = Date.now) {
     export: () => structuredClone(state),
     snapshot,
     resolveHandle: handle => Object.values(state.accounts).find(user => user.username.toLowerCase() === handle.replace(/^@/, "").toLowerCase())?.id,
+    creditDevnetDeposit(id, evidence) {
+      const user = account(id);
+      if (!user.verifiedWallet || evidence?.depositorWallet !== user.verifiedWallet) reject("Deposit wallet does not match the verified account wallet.");
+      if (evidence?.ok !== true || evidence.cluster !== "devnet" || evidence.commitment !== "finalized" ||
+          evidence.ledgerCredited !== false || evidence.realFundsEnabled !== false || !Number.isSafeInteger(evidence.amountUnits) ||
+          evidence.amountUnits <= 0 || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(evidence.signature || "")) reject("Invalid finalized devnet deposit evidence.");
+      const previous = state.devnetDeposits[evidence.signature];
+      if (previous) {
+        if (previous.accountId !== id || previous.amountUnits !== evidence.amountUnits) reject("Deposit signature already belongs to another account or amount.");
+        return { deposit: structuredClone(previous), duplicate: true };
+      }
+      devnetMove("asset:devnet-treasury", devnetBalanceKey(id), evidence.amountUnits, "devnet_deposit", evidence.signature);
+      const deposit = { accountId: id, signature: evidence.signature, amountUnits: evidence.amountUnits,
+        wallet: evidence.depositorWallet, mint: evidence.mint, slot: evidence.slot, status: "devnet_credited",
+        creditedAt: new Date(now()).toISOString() };
+      state.devnetDeposits[evidence.signature] = deposit;
+      return { deposit: structuredClone(deposit), duplicate: false };
+    },
     fund(id) {
       const user = account(id);
       if (user.funded) reject("Your one-time sandbox balance has already been added.");
@@ -185,6 +219,17 @@ export function createAccountLedger(seed, now = Date.now) {
       for (const withdrawal of Object.values(state.withdrawals)) {
         if (!["sandbox_reserved", "cancelled"].includes(withdrawal.status) || !Number.isSafeInteger(withdrawal.amountUnits) || withdrawal.amountUnits <= 0) reject("Invalid withdrawal record.");
         if (balance(`withdrawal:${withdrawal.id}`) !== (withdrawal.status === "sandbox_reserved" ? withdrawal.amountUnits : 0)) reject("Withdrawal reservation does not match its record.");
+      }
+      const expectedDevnet = {};
+      for (const item of state.devnetJournal) {
+        if (!Array.isArray(item.entries) || item.entries.length !== 2 || item.entries.some(entry =>
+          typeof entry.account !== "string" || !Number.isSafeInteger(entry.units) || entry.units === 0)) reject("Invalid devnet journal entry.");
+        if (item.entries.reduce((sum, entry) => sum + entry.units, 0) !== 0) reject("Unbalanced devnet journal entry.");
+        for (const entry of item.entries) expectedDevnet[entry.account] = (expectedDevnet[entry.account] || 0) + entry.units;
+      }
+      for (const key of new Set([...Object.keys(expectedDevnet), ...Object.keys(state.devnetBalances)])) {
+        if (!Number.isSafeInteger(devnetBalance(key)) || (expectedDevnet[key] || 0) !== devnetBalance(key)) reject("Devnet ledger reconciliation failed.");
+        if (key !== "asset:devnet-treasury" && devnetBalance(key) < 0) reject("Negative devnet balance.");
       }
       return { ok: true, journalEntries: state.journal.length, totalUnits: Object.values(state.balances).reduce((sum, value) => sum + value, 0) };
     },

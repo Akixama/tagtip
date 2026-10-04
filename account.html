@@ -19,7 +19,7 @@
         <p id="loginUnavailable" hidden>X login is not configured on this deployment yet. You can still explore the <a href="send.html">shared demo ↗</a>.</p>
       </section>
       <section id="workspace" hidden>
-        <div class="account-summary panel"><div><p class="micro-label" id="identity">VERIFIED X ACCOUNT</p><h2 id="balance">0.00 <small>test USDC</small></h2><p id="accountStatus">Available balance</p></div><button class="button light" id="fund">Add 25 test USDC</button></div>
+        <div class="account-summary panel"><div><p class="micro-label" id="identity">VERIFIED X ACCOUNT</p><h2 id="balance">0.00 <small>test USDC</small></h2><p id="accountStatus">Available balance</p><p id="devnetBalance" class="account-help">0.00 devnet USDC · separate test-network balance</p></div><button class="button light" id="fund">Add 25 test USDC</button></div>
         <div class="sender-grid">
           <div class="setup-column">
             <article class="panel account-form"><p class="micro-label">SPENDING CONTROLS</p><h2>A boundary you choose.</h2>
@@ -30,6 +30,10 @@
               <button class="button ghost" id="verifyWallet" type="button">Verify wallet with Phantom</button><p id="walletStatus" class="account-help">Sign an ownership message. No transaction or spending approval.</p>
               <form id="withdrawForm"><label>Amount · USDC<input id="withdrawAmount" inputmode="decimal" placeholder="5.00" required/></label><label>Verified Solana destination<input id="wallet" readonly placeholder="Verify your wallet first" required/></label><button class="button ghost" type="submit">Reserve test withdrawal</button></form>
               <div id="withdrawals" class="account-records"></div>
+            </article>
+            <article class="panel account-form" id="devnetDepositPanel" hidden><p class="micro-label">DEVNET DEPOSIT PILOT</p><h2>Verify a test-network deposit.</h2><p class="account-help">Send Circle devnet USDC from your verified wallet to the configured devnet treasury, then paste the finalized signature. Mainnet transactions are rejected.</p>
+              <form id="devnetDepositForm"><label>Finalized transaction signature<input id="depositSignature" autocomplete="off" placeholder="Solana devnet signature" required/></label><button class="button ghost" type="submit">Verify devnet deposit</button></form>
+              <div id="devnetDeposits" class="account-records"></div>
             </article>
           </div>
           <div class="command-column">

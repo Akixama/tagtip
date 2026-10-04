@@ -24,6 +24,7 @@ function render() {
   $("#identity").textContent = `@${state.account.username} · VERIFIED X ACCOUNT`;
   $("#balance").replaceChildren(document.createTextNode(format(state.availableUnits) + " "), text("small", "test USDC"));
   $("#accountStatus").textContent = `${state.account.paused ? "Tipping paused" : "Tipping active"} · ${format(state.account.spentUnits)} USDC tipped today`;
+  $("#devnetBalance").textContent = `${format(state.devnetAvailableUnits || 0)} devnet USDC · separate test-network balance`;
   $("#fund").hidden = state.account.funded;
   $("#perTip").value = String(state.account.policy.perTipUnits / 1_000_000);
   $("#perDay").value = String(state.account.policy.perDayUnits / 1_000_000);
@@ -50,6 +51,11 @@ function render() {
     record(journal, `${movement.units > 0 ? "+" : "−"}${format(Math.abs(movement.units))} test USDC`, `${item.reason.replaceAll("_", " ")} · ${new Date(item.at).toLocaleString()}`);
   }
   if (!state.journal.length) journal.append(text("p", "No balance movements yet.", "account-help"));
+  $("#devnetDepositPanel").hidden = !state.devnetDepositEnabled;
+  const deposits = $("#devnetDeposits"); deposits.replaceChildren();
+  for (const item of (state.devnetDeposits || []).slice().reverse()) {
+    record(deposits, `+${format(item.amountUnits)} devnet USDC`, `${item.status.replaceAll("_", " ")} · signature ${item.signature.slice(0, 8)}…${item.signature.slice(-8)}`);
+  }
 }
 async function mutate(path, body, message) {
   const result = await api(path, body); state = result.state; render(); notice(message);
@@ -92,6 +98,11 @@ $("#tipForm").addEventListener("submit", event => { event.preventDefault(); run(
 $("#withdrawForm").addEventListener("submit", event => { event.preventDefault(); run(async () => {
   const payload = { amount: $("#withdrawAmount").value.trim(), wallet: $("#wallet").value.trim() }; const key = intent("withdrawal", payload);
   await mutate("/api/account/withdrawals", { ...payload, requestId: key.id }, "Test withdrawal reserved. No blockchain transaction was sent."); key.complete();
+}); });
+$("#devnetDepositForm").addEventListener("submit", event => { event.preventDefault(); run(async () => {
+  const signature = $("#depositSignature").value.trim();
+  await mutate("/api/account/devnet/deposits", { signature }, "Finalized devnet deposit credited to your separate devnet balance.");
+  $("#depositSignature").value = "";
 }); });
 $("#logout").addEventListener("click", () => run(async () => { await api("/api/auth/logout", {}); location.replace("account.html"); }));
 try {

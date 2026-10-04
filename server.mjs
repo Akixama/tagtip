@@ -212,6 +212,15 @@ async function handleRequest(request, response) {
       } else if (requestPath === "/api/account/wallet/verify" && request.method === "POST") {
         const body = await readJson(request);
         accounts.verifyWallet(user.id, body.signature);
+      } else if (requestPath === "/api/account/devnet/deposits" && request.method === "POST") {
+        if (!depositVerifier.configured) return json(response, 503, { ok: false, reason: "Devnet deposits are not configured yet." });
+        const body = await readJson(request);
+        const verifiedWallet = accounts.snapshot(user.id).account.verifiedWallet;
+        if (!verifiedWallet) return json(response, 422, { ok: false, reason: "Verify the depositing wallet first." });
+        let evidence;
+        try { evidence = await depositVerifier.verify({ signature: body.signature, depositorWallet: verifiedWallet }); }
+        catch { return json(response, 422, { ok: false, reason: "Finalized devnet USDC deposit could not be verified. No balance was credited." }); }
+        result = accounts.creditDevnetDeposit(user.id, evidence);
       } else {
         const claim = requestPath.match(/^\/api\/account\/tips\/([a-f0-9-]{36})\/claim$/);
         const cancel = requestPath.match(/^\/api\/account\/withdrawals\/([a-f0-9-]{36})\/cancel$/);
@@ -222,7 +231,7 @@ async function handleRequest(request, response) {
       const snapshot = accounts.snapshot(user.id);
       accounts.reconcile();
       await accountStore.save(accounts.export());
-      return json(response, 200, { ok: true, ...result, state: snapshot });
+      return json(response, 200, { ok: true, ...result, state: { ...snapshot, devnetDepositEnabled: depositVerifier.configured } });
     } catch (error) {
       if (error.code === "LEDGER_CONFLICT") throw error;
       if (error.code === "ACCOUNT_RULE") return json(response, 422, { ok: false, reason: error.message });

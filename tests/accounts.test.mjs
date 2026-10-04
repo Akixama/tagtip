@@ -96,3 +96,19 @@ test("reconciliation checks reservations even when the journal remains balanced"
   unsafe.journal[0].entries[0].units = NaN;
   assert.throws(() => createAccountLedger(unsafe).reconcile(), /Invalid journal/);
 });
+test("finalized devnet deposits credit a separate balance once", () => {
+  const { ledger } = fixture();
+  const proof = testWallet();
+  const challenge = ledger.walletChallenge("1", proof.address, "https://tagtip.example");
+  ledger.verifyWallet("1", proof.sign(challenge.message));
+  const evidence = { ok: true, cluster: "devnet", commitment: "finalized", ledgerCredited: false, realFundsEnabled: false,
+    signature: "3".repeat(88), amountUnits: 7_000_000, depositorWallet: proof.address, mint: "mint", slot: 42 };
+  assert.equal(ledger.creditDevnetDeposit("1", evidence).duplicate, false);
+  assert.equal(ledger.creditDevnetDeposit("1", evidence).duplicate, true);
+  const snapshot = ledger.snapshot("1");
+  assert.equal(snapshot.availableUnits, 25_000_000);
+  assert.equal(snapshot.devnetAvailableUnits, 7_000_000);
+  assert.equal(snapshot.devnetDeposits.length, 1);
+  assert.equal(ledger.reconcile().ok, true);
+  assert.throws(() => ledger.creditDevnetDeposit("2", evidence), /verified account wallet|another account/);
+});
