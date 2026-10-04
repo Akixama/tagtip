@@ -8,18 +8,20 @@ export function createXProcessor({ token, botId, botHandle = "TagTip", initialSi
     configured,
     async run() {
       if (!configured) throw new Error("X processor disabled or incomplete configuration.");
+      const startedAt = now();
       const checkpoint = await store.load() || { sinceId: initialSinceId, lastRun: null, results: [] };
+      if (!validId(checkpoint.sinceId)) throw new Error("Invalid processor checkpoint. Operator review required.");
       checkpoint.pendingResults ||= {};
       if (checkpoint.nextAllowedAt > now()) return { ok: true, deferred: true, nextAllowedAt: checkpoint.nextAllowedAt };
       let calls = 0;
       async function get(url) {
-        if (calls >= maxCalls) {
+        if (calls >= maxCalls || now() - startedAt >= 35_000) {
           checkpoint.nextAllowedAt = now() + 60_000;
           await store.save(checkpoint);
           throw new Error("X request budget reached. Progress retained; retry later.");
         }
         calls++;
-        const response = await fetcher(url, { signal: AbortSignal.timeout(10_000), headers: { Authorization: `Bearer ${token}` } });
+        const response = await fetcher(url, { signal: AbortSignal.timeout(5_000), headers: { Authorization: `Bearer ${token}` } });
         if (response.status === 429) {
           const reset = Number(response.headers?.get("x-rate-limit-reset")) * 1000;
           checkpoint.nextAllowedAt = Math.max(now() + 60_000, Number.isFinite(reset) ? reset : 0);

@@ -8,6 +8,7 @@ const elements = {
   empty: $("#claimEmpty"), steps: $("#claimSteps"),
 };
 let tip;
+let selectedTipId;
 const requestedTipId = new URLSearchParams(location.search).get("tip");
 
 async function api(path, method = "GET") {
@@ -20,7 +21,8 @@ async function api(path, method = "GET") {
 function complete(step) { step.classList.remove("active"); step.classList.add("complete"); }
 
 function renderTip(state) {
-  tip = requestedTipId ? state.tips.find((item) => item.id === requestedTipId) : state.tips.find((item) => !["claimed", "expired"].includes(item.status)) || state.tips[0];
+  tip = requestedTipId || selectedTipId ? state.tips.find((item) => item.id === (requestedTipId || selectedTipId)) : state.tips.find((item) => !["claimed", "expired"].includes(item.status)) || state.tips[0];
+  if (tip) selectedTipId = tip.id;
   const hasTip = Boolean(tip);
   elements.empty.classList.toggle("is-hidden", hasTip);
   elements.steps.classList.toggle("is-hidden", !hasTip);
@@ -56,8 +58,22 @@ function renderTip(state) {
   else if (tip.status === "verified") elements.walletStep.classList.add("active");
 }
 
-elements.verifyButton.addEventListener("click", async () => renderTip(await api(`/api/demo/tips/${tip.id}/verify`, "POST")));
-elements.walletButton.addEventListener("click", async () => renderTip(await api(`/api/demo/tips/${tip.id}/wallet`, "POST")));
-elements.claimButton.addEventListener("click", async () => renderTip(await api(`/api/demo/tips/${tip.id}/claim`, "POST")));
+async function action(step) {
+  if (!tip) return;
+  const buttons = [elements.verifyButton, elements.walletButton, elements.claimButton];
+  const disabled = buttons.map(button => button.disabled);
+  buttons.forEach(button => { button.disabled = true; });
+  try { renderTip(await api(`/api/demo/tips/${tip.id}/${step}`, "POST")); }
+  catch (error) {
+    buttons.forEach((button, index) => { button.disabled = disabled[index]; });
+    elements.result.classList.remove("is-hidden");
+    elements.resultCopy.textContent = `Could not confirm the claim step: ${error.message} Refresh before retrying.`;
+    elements.state.textContent = "Could not confirm";
+  }
+}
+elements.verifyButton.addEventListener("click", () => action("verify"));
+elements.walletButton.addEventListener("click", () => action("wallet"));
+elements.claimButton.addEventListener("click", () => action("claim"));
 
-renderTip(await api("/api/demo"));
+try { renderTip(await api("/api/demo")); }
+catch (error) { elements.steps.classList.add("is-hidden"); elements.empty.classList.remove("is-hidden"); elements.empty.querySelector("p").textContent = `Could not load this tip: ${error.message}`; }

@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -10,6 +11,8 @@ import { createAccountLedger } from "./src/accounts.js";
 import { parseTipCommand } from "./src/core.js";
 import { createXProcessor } from "./src/x-processor.js";
 import { createRateLimiter } from "./src/rate-limit.js";
+import { createDevnetDepositVerifier } from "./src/devnet-deposit.js";
+import { readinessReport } from "./src/readiness.js";
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
@@ -19,13 +22,19 @@ const storageType = databaseUrl ? "postgres" : "file";
 const store = databaseUrl ? createPostgresStore(databaseUrl) : createFileStore(process.env.DEMO_DATA_FILE || join(root, "data", "demo-ledger.json"));
 let ledger = createDemoLedger(await store.load());
 let requestQueue = Promise.resolve();
+let queuedRequests = 0;
 const rateLimiter = createRateLimiter();
-const processorSecret = process.env.X_PROCESSOR_SECRET || "";
+const suppliedSecret = process.env.X_PROCESSOR_SECRET || "";
+const processorSecret = suppliedSecret.length >= 32 && !suppliedSecret.startsWith("replace-") ? suppliedSecret : "";
+const authorizedProcessor = request => Boolean(processorSecret && typeof request.headers.authorization === "string" && timingSafeEqual(
+  createHash("sha256").update(request.headers.authorization).digest(), createHash("sha256").update(`Bearer ${processorSecret}`).digest()));
 const authStore = databaseUrl ? createPostgresStore(databaseUrl, "identity") : createFileStore(process.env.AUTH_DATA_FILE || join(root, "data", "identity.json"));
 const auth = createAuthService({ store: authStore, clientId: process.env.X_CLIENT_ID,
   clientSecret: process.env.X_CLIENT_SECRET, origin: process.env.APP_ORIGIN });
 const accountStore = databaseUrl ? createPostgresStore(databaseUrl, "accounts-sandbox") : createFileStore(process.env.ACCOUNT_DATA_FILE || join(root, "data", "accounts-sandbox.json"));
 const workerStore = databaseUrl ? createPostgresStore(databaseUrl, "x-worker") : createFileStore(process.env.WORKER_DATA_FILE || join(root, "data", "x-worker.json"));
+const depositVerifier = createDevnetDepositVerifier({ rpcUrl: process.env.SOLANA_RPC_URL,
+  treasuryTokenAccount: process.env.DEVNET_TREASURY_TOKEN_ACCOUNT, treasuryOwner: process.env.DEVNET_TREASURY_OWNER });
 const worker = createXProcessor({ token: process.env.X_BEARER_TOKEN, botId: process.env.X_BOT_USER_ID,
   botHandle: process.env.X_BOT_HANDLE, initialSinceId: process.env.X_START_SINCE_ID,
   enabled: process.env.X_PROCESSOR_ENABLED === "true", store: workerStore,
@@ -98,7 +107,7 @@ async function handleRequest(request, response) {
   }
 
   if (requestPath.startsWith("/api/ops/")) {
-    if (!processorSecret || request.headers.authorization !== `Bearer ${processorSecret}`) return json(response, 401, { ok: false, reason: "Processor authorization required." });
+    if (!authorizedProcessor(request)) return json(response, 401, { ok: false, reason: "Processor authorization required." });
     if (requestPath === "/api/ops/process-x" && request.method === "POST") {
       if (!worker.configured) return json(response, 503, { ok: false, reason: "X processor is disabled or not configured." });
       return json(response, 200, await worker.run());
@@ -114,6 +123,16 @@ async function handleRequest(request, response) {
     }
     if (requestPath === "/api/ops/status" && request.method === "GET") {
       return json(response, 200, { ok: true, workerConfigured: worker.configured, checkpoint: await workerStore.load(), realFundsEnabled: false });
+    }
+    if (requestPath === "/api/ops/readiness" && request.method === "GET") return json(response, 200, readinessReport());
+    if (requestPath === "/api/ops/verify-devnet-deposit" && request.method === "POST") {
+      if (!depositVerifier.configured) return json(response, 503, { ok: false, reason: "Devnet treasury evidence verifier is not configured." });
+      const body = await readJson(request);
+      const accounts = createAccountLedger(await accountStore.load()); accounts.reconcile();
+      const verifiedWallet = accounts.snapshot(body.accountId).account.verifiedWallet;
+      if (!verifiedWallet) return json(response, 422, { ok: false, reason: "Account must verify its wallet first." });
+      try { return json(response, 200, await depositVerifier.verify({ signature: body.signature, depositorWallet: verifiedWallet })); }
+      catch { return json(response, 422, { ok: false, reason: "Devnet deposit evidence could not be verified. No ledger credit occurred." }); }
     }
     return json(response, 404, { ok: false, reason: "Not found." });
   }
@@ -208,7 +227,8 @@ async function handleRequest(request, response) {
   }
 
   if (requestPath === "/api/health" && request.method === "GET") {
-    return json(response, 200, { ok: true, service: "tagtip", storage: storageType, mode: "demo", processorEnabled: Boolean(processorSecret), realFundsEnabled: false });
+    return json(response, 200, { ok: true, service: "tagtip", storage: storageType, mode: "sandbox",
+      demoIngestionEnabled: Boolean(processorSecret), processorEnabled: worker.configured, xLoginConfigured: auth.configured, realFundsEnabled: false });
   }
   if (requestPath === "/api/demo" && request.method === "GET") return json(response, 200, ledger.snapshot());
   if (requestPath === "/api/demo/setup" && request.method === "POST") return persist(response, 200, ledger.setup());
@@ -234,7 +254,7 @@ async function handleRequest(request, response) {
 
   if (requestPath === "/api/x/events" && request.method === "POST") {
     if (!processorSecret) return json(response, 503, { ok: false, reason: "Processor is not configured." });
-    if (request.headers.authorization !== `Bearer ${processorSecret}`) {
+    if (!authorizedProcessor(request)) {
       return json(response, 401, { ok: false, reason: "Invalid processor authorization." });
     }
     try {
@@ -285,12 +305,15 @@ async function handleRequest(request, response) {
 }
 
 export function requestHandler(request, response) {
+  if (queuedRequests >= 200) return json(response, 503, { ok: false, reason: "Service busy. Please retry later." });
+  queuedRequests++;
   const run = requestQueue.then(() => handleRequest(request, response)).catch((error) => {
     if (!response.headersSent) json(response, error.code === "BODY_TOO_LARGE" ? 413 : error.code === "LEDGER_CONFLICT" ? 409 : 503, {
       ok: false,
       reason: error.code === "BODY_TOO_LARGE" ? "Request body exceeds 16KB." : error.code === "LEDGER_CONFLICT" ? "Another request updated this balance. Please retry." : "Service temporarily unavailable.",
     });
   });
+  run.finally(() => { queuedRequests--; });
   requestQueue = run;
   return run;
 }

@@ -35,7 +35,12 @@ function renderActivities() {
     elements.activityList.innerHTML = '<li class="empty-activity">Complete setup and run your first test command.</li>';
     return;
   }
-  elements.activityList.innerHTML = state.activities.map((item) => `<li><span class="activity-icon ${item.ok ? "success" : "blocked"}">${item.ok ? "✓" : "!"}</span><div><strong>${item.title}</strong><small>${item.detail}</small></div><time>${item.time}</time></li>`).join("");
+  elements.activityList.replaceChildren(...state.activities.map(item => {
+    const row = document.createElement("li"), icon = document.createElement("span"), copy = document.createElement("div"), title = document.createElement("strong"), detail = document.createElement("small"), time = document.createElement("time");
+    icon.className = `activity-icon ${item.ok ? "success" : "blocked"}`; icon.textContent = item.ok ? "✓" : "!";
+    title.textContent = item.title; detail.textContent = item.detail; time.textContent = item.time;
+    copy.append(title, detail); row.append(icon, copy, time); return row;
+  }));
 }
 
 function render() {
@@ -92,7 +97,13 @@ function showReceipt({ ok, title, reason, amount = 0, fee = 0, id = "" }) {
   if (ok && id) elements.claimLink.href = `claim.html?tip=${encodeURIComponent(id)}`;
 }
 
-elements.setupButton.addEventListener("click", async () => { elements.setupButton.disabled = true; state = await api("/api/demo/setup", { method: "POST" }); render(); });
+async function updateDemo(button, path, hideReceipt = false) {
+  button.disabled = true;
+  try { state = await api(path, { method: "POST" }); if (hideReceipt) elements.receipt.classList.add("is-hidden"); render(); }
+  catch (error) { showReceipt({ ok: false, title: "Could not update the demo", reason: error.message }); }
+  finally { button.disabled = false; if (state) render(); }
+}
+elements.setupButton.addEventListener("click", () => updateDemo(elements.setupButton, "/api/demo/setup"));
 elements.runButton.addEventListener("click", async () => {
   elements.runButton.disabled = true;
   elements.runButton.textContent = "Checking…";
@@ -102,15 +113,20 @@ elements.runButton.addEventListener("click", async () => {
     if (!result.ok) showReceipt({ ok: false, title: result.recipient ? `${money(result.amount)} to ${result.recipient}` : "Command not recognized", reason: result.reason });
     else showReceipt({ ok: true, title: `${money(result.tip.amount)} reserved for ${result.tip.recipient}`, reason: "The tip is now waiting on the recipient claim page.", amount: result.tip.amount, fee: result.tip.fee, id: result.tip.id });
     render();
+  } catch (error) {
+    showReceipt({ ok: false, title: "Request could not be confirmed", reason: error.message + " Refresh before trying again." });
   } finally {
     elements.runButton.disabled = false;
     elements.runButton.textContent = "Reply";
   }
 });
-elements.pauseButton.addEventListener("click", async () => { state = await api("/api/demo/pause", { method: "POST" }); render(); });
+elements.pauseButton.addEventListener("click", () => updateDemo(elements.pauseButton, "/api/demo/pause"));
 elements.revokeButton.addEventListener("click", () => elements.revokeDialog.showModal());
-elements.confirmRevoke.addEventListener("click", async () => { state = await api("/api/demo/revoke", { method: "POST" }); elements.receipt.classList.add("is-hidden"); render(); });
-elements.resetButton.addEventListener("click", async () => { state = await api("/api/demo/reset", { method: "POST" }); elements.receipt.classList.add("is-hidden"); render(); });
+elements.confirmRevoke.addEventListener("click", () => updateDemo(elements.confirmRevoke, "/api/demo/revoke", true));
+elements.resetButton.addEventListener("click", () => updateDemo(elements.resetButton, "/api/demo/reset", true));
 
-state = await api("/api/demo");
-render();
+try { state = await api("/api/demo"); render(); }
+catch (error) {
+  elements.setupButton.disabled = true;
+  showReceipt({ ok: false, title: "Demo unavailable", reason: error.message + " Reload to try again." });
+}

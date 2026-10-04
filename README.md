@@ -28,7 +28,7 @@ Open `http://localhost:4173`.
 - Health endpoint at `GET /api/health`
 - Pause and revoke controls
 
-No real wallet permission, X API request, token transfer, or custom Solana program is used yet. Local state is stored in `data/demo-ledger.json` and is intentionally ignored by Git. The X-event endpoint is disabled unless `X_PROCESSOR_SECRET` is set; requests must supply that secret as a Bearer token. This protects demo ingestion only, not real sender authorization. Health always reports demo mode and real funds disabled.
+The shared demo uses no real wallet permission, X API request, token transfer, or custom Solana program. Local state is stored in `data/demo-ledger.json` and is intentionally ignored by Git. Its legacy `/api/x/events` endpoint is disabled unless a strong `X_PROCESSOR_SECRET` is set; requests must supply that secret as a Bearer token. This protects demo ingestion only, not real sender authorization. Health reports sandbox mode, real funds disabled, and separate flags for demo ingestion, X login, and the actual mention worker.
 
 Set DATABASE_URL to use the Neon/Postgres adapter. It creates a shared prototype state table and rejects conflicting writes instead of overwriting balances. Vercel requires DATABASE_URL; local development falls back to the JSON store. The hosted adapter has not yet been verified against a live database.
 
@@ -61,6 +61,10 @@ The worker fetches at most three mention pages and makes at most ten X requests 
 Other protected endpoints: `GET /api/ops/status`, `GET /api/ops/reconcile`, and `POST /api/ops/expire`. No scheduler is installed automatically, so there are no surprise recurring API charges. Use your scheduler to POST only after validating configuration and setting a budget.
 
 Run `npm run build` for Vercel. It copies only nine allowlisted browser assets into `public/`; backend modules and local data are not public deployment assets. Vercel still requires `DATABASE_URL`. Hosted database, OAuth, and worker integrations require live verification.
+
+The read-only devnet evidence verifier accepts finalized legacy SPL `transferChecked` deposits of Circle's devnet USDC mint only. It checks network genesis, signer, token-account ownership, decimals, treasury destination and net balance change. `POST /api/ops/verify-devnet-deposit` accepts `{ accountId, signature }` under processor authorization and uses that account's verified wallet. It returns evidence only: **no ledger credit or payout occurs**. Configure a dedicated devnet treasury owner and token account before using it. Never send mainnet funds.
+
+Use Node 24+. `npm run dev`, `npm run check-config`, and `npm run ops -- status` load an ignored `.env` if present. The configuration checker prints missing variable names, never values. Operation choices are `status`, `readiness`, `reconcile`, `expire`, and `process-x`. Do not invoke `process-x` until you have approved your X API credit budget.
 
 Per-instance request limits, content-security policy, anti-framing headers, and 16KB body limits are applied. These are sandbox safeguards, not substitutes for distributed edge protection or a security review.
 

@@ -22,7 +22,7 @@ test("HTTP demo lifecycle and security boundaries", async (t) => {
     createHash("sha256").update(name).digest("base64url"), { accountId: String(index + 1), expiresAt: Date.now() + 86_400_000 },
   ])) });
   process.env.DATABASE_URL = "";
-  process.env.X_PROCESSOR_SECRET = "test-only-processor-secret";
+  process.env.X_PROCESSOR_SECRET = "test-only-processor-secret-long-enough-12345";
   delete process.env.VERCEL;
   const { requestHandler } = await import("../server.mjs");
   const server = createServer(requestHandler);
@@ -40,9 +40,10 @@ test("HTTP demo lifecycle and security boundaries", async (t) => {
 
   await t.test("health never implies real funds are enabled", async () => {
     const health = await (await request("/api/health")).json();
-    assert.equal(health.mode, "demo");
+    assert.equal(health.mode, "sandbox");
     assert.equal(health.realFundsEnabled, false);
-    assert.equal(health.processorEnabled, true);
+    assert.equal(health.demoIngestionEnabled, true);
+    assert.equal(health.processorEnabled, false);
   });
   await t.test("private server and data files cannot be downloaded", async () => {
     for (const path of ["/server.mjs", "/.env", "/src/ledger.js", "/data/demo-ledger.json"]) {
@@ -60,7 +61,7 @@ test("HTTP demo lifecycle and security boundaries", async (t) => {
   let id;
   await t.test("duplicate processor requests charge the balance once", async () => {
     const event = { tweetId: "42", text: "@TagTip send $3 to @mara" };
-    const headers = { Authorization: "Bearer test-only-processor-secret" };
+    const headers = { Authorization: `Bearer ${process.env.X_PROCESSOR_SECRET}` };
     const first = await request("/api/x/events", event, headers);
     assert.equal(first.status, 201);
     id = (await first.json()).tip.id;
@@ -89,6 +90,16 @@ test("HTTP demo lifecycle and security boundaries", async (t) => {
     assert.equal((await request("/api/account")).status, 401);
     assert.equal((await request("/api/account/fund", {}, { Cookie: "tagtip_session=alice" })).status, 403);
     assert.equal((await request("/api/auth/x/start")).status, 503);
+  });
+  await t.test("ops endpoints are protected and oversize bodies are rejected", async () => {
+    assert.equal((await request("/api/ops/readiness")).status, 401);
+    const ops = { Authorization: `Bearer ${process.env.X_PROCESSOR_SECRET}` };
+    const ready = await request("/api/ops/readiness", undefined, ops);
+    assert.equal(ready.status, 200);
+    assert.equal((await ready.json()).realFundsEnabled, false);
+    assert.equal((await request("/api/ops/process-x", {}, ops)).status, 503);
+    const large = await fetch(`${origin}/api/demo/tips`, { method: "POST", body: "a".repeat(17_000) });
+    assert.equal(large.status, 413);
   });
   await t.test("authenticated account flows cannot access another user's money", async () => {
     const headers = name => ({ Cookie: `tagtip_session=${name}`, Origin: process.env.APP_ORIGIN });

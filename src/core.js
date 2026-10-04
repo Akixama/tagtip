@@ -7,6 +7,7 @@ export const POLICY = Object.freeze({
 });
 
 export function parseTipCommand(raw) {
+  if (typeof raw !== "string" || raw.length > 1000) return { ok: false, reason: "Enter a short text command." };
   const text = raw.trim();
   const match = text.match(/^@TagTip\s+send\s+\$?([0-9]+(?:\.[0-9]{1,2})?)\s+to\s+@([A-Za-z0-9_]{1,15})$/i);
 

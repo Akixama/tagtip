@@ -1,39 +1,47 @@
-# Production readiness
+# TagTip launch gates
 
-The website now proves the complete product state machine without touching real money:
+TagTip is a custodial-product sandbox, not a deployed custody service. No custom Solana program is required by this architecture. No real funds, treasury key, automatic public posting, or paid scheduler is enabled.
 
-1. A sender funds a controlled balance.
-2. An X command creates one idempotent pending tip.
-3. The recipient opens a tip-specific claim link.
-4. Verification and wallet selection must happen in order.
-5. A claim closes the record; expiry returns an unclaimed reservation.
+## Implemented and tested offline
 
-## External work still required
+- Dark landing page, separate demo sender/recipient pages, personal account page.
+- X OAuth PKCE login, immutable X-ID accounts, browser-bound one-time state, hashed 24-hour sessions and logout.
+- Separate user balances in integer USDC base units; balanced journal and reconciliation.
+- One-time test funding, spending controls, pause, pending tips, recipient-only claims and seven-day refunds including fees.
+- Wallet-ownership challenges with Ed25519 verification and replay/expiry checks.
+- Idempotent mock withdrawal reservations and cancellations; no transfers submitted.
+- Local persistence and Neon snapshot adapter with monotonic compare-and-swap revisions.
+- Disabled-by-default X mention reader with chronological processing, recipient-ID lookup, cursor checkpoints, request budgets and rate-limit backoff.
+- Protected operation endpoints, bounded per-instance rate limits and queues, body limits and browser security headers.
+- Read-only finalized devnet USDC deposit evidence checks; no deposit crediting.
+- Allowlisted Vercel public build and GitHub test/build workflow.
 
-### 1. Durable database
+Mocked tests do not prove external-service behavior. Browser QA uses isolated Alice/Bob fixtures, not live X identities.
 
-Replace the local JSON adapter with Neon/Postgres. Preserve the ledger API and store senders, tips, processor events, claims, and immutable status transitions. Add row-level locking around balance reservations.
+## Must complete before a real-money pilot
 
-### 2. X command processor
+1. **Configure and verify identity/persistence.** Use TagTip-specific X app settings and a separate database. Test OAuth success/denial/replay, logout, cold starts, restarts, and concurrent writes on the hosted system.
+2. **Verify the mention worker with a credit budget.** Set a deliberate start post ID so historical posts cannot initiate tips. Confirm bot handle/ID, actual author IDs, blocked commands, pagination and 429 behavior. No automatic scheduler until cost limits are decided.
+3. **Replace snapshot financial storage.** Use transactional normalized accounts, balances, immutable journal entries, event IDs and chain receipts. Add database constraints, row-level locking, migration/backup procedures and independent reconciliation. Do not relabel sandbox credits as backed USDC.
+4. **Implement deposit accounting.** Use dedicated treasury accounts, stable user attribution, unique signature/instruction receipts and finalized balance checks. Prevent copied receipts and double crediting. Failed, wrong-mint or mainnet deposits must not become test or cash balances.
+5. **Implement custody settlement.** Select a managed signing/custody setup. Never put a treasury private key in browser code, Git or a general demo environment. Persist a signed transaction before broadcast, use the same transaction on retries, reconcile signatures independently, and keep ambiguous outcomes reserved instead of sending again.
+6. **Protect withdrawals.** Require fresh authentication, verified destinations, address-change safeguards, amount limits and explicit fee disclosure. A wallet proof alone does not protect against a compromised X account.
+7. **Add bot receipts and operations.** Implement bot-only posting authorization, a durable reply outbox and unknown-outcome handling. Add distributed edge limits, expiry scheduling, alerting, support/refund tools, retention/deletion policy and security review.
+8. **Run a devnet end-to-end pilot.** Test real login → test deposit → X command → unregistered recipient joins → claim → devnet withdrawal → reconciliation. Then consider a separately approved, tightly capped mainnet pilot.
 
-Poll mentions or receive the configured X event stream, normalize each post into `{ tweetId, text, author }`, and call `POST /api/x/events` with the processor bearer secret. The endpoint already rejects repeat `tweetId` values without charging twice.
+## What needs the owner
 
-### 3. Identity verification
+- TagTip's X client ID/secret, bot bearer token, bot user ID and callback origin.
+- A TagTip database and hosting project; don't reuse TipOnSol's production financial data.
+- An X API spend limit and polling frequency.
+- Dedicated devnet treasury addresses and a custody/signing choice before transfer implementation.
 
-Use X OAuth on the claim page. The authenticated X user ID—not only the editable handle—must match the recipient ID captured when the command was processed.
+Run `npm run check-config` to list missing configuration without exposing credentials. Store values in ignored local `.env` or the host's secret manager, not chat, screenshots or committed files.
 
-### 4. Custodial USDC settlement
+## Primary integration references
 
-Use a dedicated treasury wallet with a small operating balance. Keep its signing key in a managed secret/KMS, never in the repository or browser. Record the Solana signature before marking a claim paid, and reconcile signatures independently.
-
-### 5. Operations
-
-- Schedule pending-tip expiry.
-- Alert on failed transfers and balance mismatches.
-- Rate-limit public endpoints.
-- Add admin review for unusually large or suspicious activity.
-- Keep the service fee capped and disclose it before funding.
-
-## Deployment order
-
-Postgres → X ingestion in read-only/test mode → X OAuth claims → devnet USDC → monitored mainnet pilot.
+- [X OAuth PKCE](https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code)
+- [X mentions](https://docs.x.com/x-api/posts/timelines/quickstart/user-mention-quickstart)
+- [Phantom ownership messages](https://docs.phantom.com/solana/signing-a-message)
+- [Solana transaction evidence](https://solana.com/docs/rpc/http/gettransaction)
+- [Circle USDC mint addresses](https://developers.circle.com/stablecoins/usdc-contract-addresses)
