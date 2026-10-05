@@ -97,6 +97,9 @@ test("HTTP demo lifecycle and security boundaries", async (t) => {
     const ready = await request("/api/ops/readiness", undefined, ops);
     assert.equal(ready.status, 200);
     assert.equal((await ready.json()).realFundsEnabled, false);
+    const queues = await request("/api/ops/queues", undefined, ops);
+    assert.equal(queues.status, 200);
+    assert.equal((await queues.json()).realFundsEnabled, false);
     assert.equal((await request("/api/ops/process-x", {}, ops)).status, 503);
     const large = await fetch(`${origin}/api/demo/tips`, { method: "POST", body: "a".repeat(17_000) });
     assert.equal(large.status, 413);

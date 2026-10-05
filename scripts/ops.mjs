@@ -1,8 +1,8 @@
 const operation = process.argv[2] || "status";
-const routes = { status: ["GET", "/api/ops/status"], reconcile: ["GET", "/api/ops/reconcile"],
+const routes = { status: ["GET", "/api/ops/status"], queues: ["GET", "/api/ops/queues"], reconcile: ["GET", "/api/ops/reconcile"],
   readiness: ["GET", "/api/ops/readiness"], expire: ["POST", "/api/ops/expire"], "process-x": ["POST", "/api/ops/process-x"],
   "process-replies": ["POST", "/api/ops/process-replies"] };
-if (!routes[operation]) throw new Error("Use: status, readiness, reconcile, expire, process-x, or process-replies.");
+if (!routes[operation]) throw new Error("Use: status, queues, readiness, reconcile, expire, process-x, or process-replies.");
 const origin = process.env.APP_ORIGIN, secret = process.env.X_PROCESSOR_SECRET;
 if (!origin || !secret || secret.startsWith("replace-")) throw new Error("Set APP_ORIGIN and X_PROCESSOR_SECRET first.");
 const url = new URL(origin);

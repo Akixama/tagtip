@@ -15,6 +15,7 @@ import { createDevnetDepositVerifier } from "./src/devnet-deposit.js";
 import { readinessReport } from "./src/readiness.js";
 import { createDepositReceipts } from "./src/deposit-receipts.js";
 import { createXReplySender } from "./src/x-replies.js";
+import { operationsSummary } from "./src/ops-summary.js";
 
 const port = Number(process.env.PORT || 4173);
 const root = process.cwd();
@@ -133,6 +134,9 @@ async function handleRequest(request, response) {
     if (requestPath === "/api/ops/status" && request.method === "GET") {
       return json(response, 200, { ok: true, workerConfigured: worker.configured, replySenderConfigured: replySender.configured,
         checkpoint: await workerStore.load(), realFundsEnabled: false });
+    }
+    if (requestPath === "/api/ops/queues" && request.method === "GET") {
+      return json(response, 200, operationsSummary({ checkpoint: await workerStore.load(), accounts: await accountStore.load() }));
     }
     if (requestPath === "/api/ops/readiness" && request.method === "GET") return json(response, 200, readinessReport());
     if (requestPath === "/api/ops/verify-devnet-deposit" && request.method === "POST") {
