@@ -116,6 +116,10 @@ async function handleRequest(request, response) {
   if (requestPath.startsWith("/api/ops/")) {
     if (!authorizedProcessor(request)) return json(response, 401, { ok: false, reason: "Processor authorization required." });
     if (requestPath === "/api/ops/bot-status" && request.method === "GET") return json(response, 200, await auth.botStatus());
+    if (requestPath === "/api/ops/preview-x" && request.method === "POST") {
+      if (!worker.previewConfigured) return json(response, 503, { ok: false, reason: "X preview is not configured." });
+      return json(response, 200, await worker.preview());
+    }
     if (requestPath === "/api/ops/process-x" && request.method === "POST") {
       if (!worker.configured) return json(response, 503, { ok: false, reason: "X processor is disabled or not configured." });
       return json(response, 200, await worker.run());

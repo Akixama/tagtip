@@ -3,9 +3,35 @@ import { parseTipCommand } from "./core.js";
 const validId = value => typeof value === "string" && /^\d{1,30}$/.test(value);
 export function createXProcessor({ token, botId, botHandle = "TagTip", initialSinceId, enabled = false,
   store, applyEvent, fetcher = fetch, now = Date.now, maxCalls = 10, appOrigin = "" }) {
-  const configured = enabled && Boolean(token) && validId(botId) && validId(initialSinceId) && /^[A-Za-z0-9_]{1,15}$/.test(botHandle);
+  const previewConfigured = Boolean(token) && validId(botId) && validId(initialSinceId) && /^[A-Za-z0-9_]{1,15}$/.test(botHandle);
+  const configured = enabled && previewConfigured;
   return {
     configured,
+    previewConfigured,
+    async preview() {
+      if (!previewConfigured) throw new Error("X preview is not configured.");
+      const checkpoint = await store.load();
+      const sinceId = checkpoint?.sinceId || initialSinceId;
+      if (!validId(sinceId)) throw new Error("Invalid processor checkpoint. Operator review required.");
+      const url = new URL(`https://api.x.com/2/users/${botId}/mentions`);
+      url.search = new URLSearchParams({ since_id: sinceId, max_results: "10", "tweet.fields": "author_id" }).toString();
+      const response = await fetcher(url.href, { signal: AbortSignal.timeout(5_000), headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error(`X preview request failed (${response.status}). No local state changed.`);
+      const body = await response.json();
+      if (body.errors?.length) throw new Error("X returned partial preview errors. No local state changed.");
+      const candidates = [];
+      let ignored = 0;
+      for (const post of body.data || []) {
+        if (!validId(post.id) || !validId(post.author_id) || typeof post.text !== "string") throw new Error("Invalid X preview payload.");
+        if (BigInt(post.id) <= BigInt(sinceId)) continue;
+        const normalized = post.text.replace(new RegExp(`^@${botHandle}\\b`, "i"), "@TagTip");
+        const command = parseTipCommand(normalized);
+        if (!command.ok || post.author_id === botId) { ignored++; continue; }
+        candidates.push({ postId: post.id, senderId: post.author_id, recipient: command.recipient, amount: String(command.amount) });
+      }
+      return { ok: true, mode: "preview", xCalls: 1, sinceId, candidates, ignored,
+        moreAvailable: Boolean(body.meta?.next_token), stateChanged: false, repliesSent: false, realFundsEnabled: false };
+    },
     async run() {
       if (!configured) throw new Error("X processor disabled or incomplete configuration.");
       const startedAt = now();
