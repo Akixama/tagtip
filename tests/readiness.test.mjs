@@ -16,3 +16,13 @@ test("processor readiness accepts a UTC start time instead of a post ID", () => 
   assert.equal(report.configuration.processor.configured, true);
   assert.deepEqual(report.configuration.processor.missing, []);
 });
+test("reply readiness accepts saved bot authorization without a legacy token", () => {
+  const env = { X_PROCESSOR_SECRET: "a".repeat(32) };
+  const before = readinessReport(env);
+  assert.equal(before.configuration.replySender.configured, false);
+  assert.deepEqual(before.configuration.replySender.missing, ["connected bot OAuth or X_BOT_USER_ACCESS_TOKEN"]);
+  const after = readinessReport(env, { botConnected: true });
+  assert.equal(after.configuration.replySender.configured, true);
+  assert.deepEqual(after.configuration.replySender.missing, []);
+  assert.equal(after.configuration.replySender.liveVerified, false);
+});
