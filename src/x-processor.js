@@ -1,20 +1,40 @@
 import { parseTipCommand } from "./core.js";
 
 const validId = value => typeof value === "string" && /^\d{1,30}$/.test(value);
-export function createXProcessor({ token, botId, botHandle = "TagTip", initialSinceId, enabled = false,
+const validStartTime = value => typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(value)
+  && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value.replace(/Z$/, ".000Z");
+export function createXProcessor({ token, botId, botHandle = "TagTip", initialSinceId, initialStartTime, enabled = false,
   store, applyEvent, fetcher = fetch, now = Date.now, maxCalls = 10, appOrigin = "" }) {
-  const previewConfigured = Boolean(token) && validId(botId) && validId(initialSinceId) && /^[A-Za-z0-9_]{1,15}$/.test(botHandle);
+  const previewConfigured = Boolean(token) && validId(botId) && (validId(initialSinceId) || validStartTime(initialStartTime))
+    && /^[A-Za-z0-9_]{1,15}$/.test(botHandle);
   const configured = enabled && previewConfigured;
+  function boundary(checkpoint) {
+    const sinceId = checkpoint?.sinceId ?? initialSinceId ?? null;
+    const startTime = checkpoint?.startTime ?? initialStartTime ?? null;
+    if (!validId(sinceId) && !(sinceId === null && validStartTime(startTime))) {
+      throw new Error("Invalid processor checkpoint. Operator review required.");
+    }
+    return { sinceId, startTime };
+  }
+  function matchesBoundary(post, { sinceId, startTime }) {
+    if (sinceId) return BigInt(post.id) > BigInt(sinceId);
+    if (typeof post.created_at !== "string" || !Number.isFinite(Date.parse(post.created_at))) throw new Error("Missing X post timestamp.");
+    return Date.parse(post.created_at) >= Date.parse(startTime);
+  }
+  function mentionUrl({ sinceId, startTime }, maxResults) {
+    const url = new URL(`https://api.x.com/2/users/${botId}/mentions`);
+    url.search = new URLSearchParams({ [sinceId ? "since_id" : "start_time"]: sinceId || startTime,
+      max_results: String(maxResults), "tweet.fields": "created_at,author_id" }).toString();
+    return url;
+  }
   return {
     configured,
     previewConfigured,
     async preview() {
       if (!previewConfigured) throw new Error("X preview is not configured.");
       const checkpoint = await store.load();
-      const sinceId = checkpoint?.sinceId || initialSinceId;
-      if (!validId(sinceId)) throw new Error("Invalid processor checkpoint. Operator review required.");
-      const url = new URL(`https://api.x.com/2/users/${botId}/mentions`);
-      url.search = new URLSearchParams({ since_id: sinceId, max_results: "10", "tweet.fields": "author_id" }).toString();
+      const start = boundary(checkpoint);
+      const url = mentionUrl(start, 10);
       const response = await fetcher(url.href, { signal: AbortSignal.timeout(5_000), headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error(`X preview request failed (${response.status}). No local state changed.`);
       const body = await response.json();
@@ -23,20 +43,20 @@ export function createXProcessor({ token, botId, botHandle = "TagTip", initialSi
       let ignored = 0;
       for (const post of body.data || []) {
         if (!validId(post.id) || !validId(post.author_id) || typeof post.text !== "string") throw new Error("Invalid X preview payload.");
-        if (BigInt(post.id) <= BigInt(sinceId)) continue;
+        if (!matchesBoundary(post, start)) continue;
         const normalized = post.text.replace(new RegExp(`^@${botHandle}\\b`, "i"), "@TagTip");
         const command = parseTipCommand(normalized);
         if (!command.ok || post.author_id === botId) { ignored++; continue; }
         candidates.push({ postId: post.id, senderId: post.author_id, recipient: command.recipient, amount: String(command.amount) });
       }
-      return { ok: true, mode: "preview", xCalls: 1, sinceId, candidates, ignored,
+      return { ok: true, mode: "preview", xCalls: 1, sinceId: start.sinceId, startTime: start.startTime, candidates, ignored,
         moreAvailable: Boolean(body.meta?.next_token), stateChanged: false, repliesSent: false, realFundsEnabled: false };
     },
     async run() {
       if (!configured) throw new Error("X processor disabled or incomplete configuration.");
       const startedAt = now();
-      const checkpoint = await store.load() || { sinceId: initialSinceId, lastRun: null, results: [] };
-      if (!validId(checkpoint.sinceId)) throw new Error("Invalid processor checkpoint. Operator review required.");
+      const checkpoint = await store.load() || { sinceId: initialSinceId || null, startTime: initialStartTime || null, lastRun: null, results: [] };
+      const start = boundary(checkpoint);
       checkpoint.pendingResults ||= {};
       checkpoint.replyOutbox ||= {};
       if (checkpoint.nextAllowedAt > now()) return { ok: true, deferred: true, nextAllowedAt: checkpoint.nextAllowedAt };
@@ -63,13 +83,12 @@ export function createXProcessor({ token, botId, botHandle = "TagTip", initialSi
       const posts = [];
       let pagination;
       for (let page = 0; page < 3; page++) {
-        const url = new URL(`https://api.x.com/2/users/${botId}/mentions`);
-        url.search = new URLSearchParams({ since_id: checkpoint.sinceId, max_results: "100", "tweet.fields": "created_at,author_id" }).toString();
+        const url = mentionUrl(start, 100);
         if (pagination) url.searchParams.set("pagination_token", pagination);
         const body = await get(url.href);
         for (const post of body.data || []) {
           if (!validId(post.id) || !validId(post.author_id) || typeof post.text !== "string") throw new Error("Invalid X event payload.");
-          if (BigInt(post.id) > BigInt(checkpoint.sinceId)) posts.push(post);
+          if (matchesBoundary(post, start)) posts.push(post);
         }
         pagination = body.meta?.next_token;
         if (!pagination) break;
@@ -103,7 +122,8 @@ export function createXProcessor({ token, botId, botHandle = "TagTip", initialSi
       checkpoint.results = [...checkpoint.results, ...results].slice(-100);
       checkpoint.pendingResults = {};
       await store.save(checkpoint);
-      return { ok: true, mode: "sandbox", realFundsEnabled: false, xCalls: calls, processed: results.length, results, sinceId: checkpoint.sinceId };
+      return { ok: true, mode: "sandbox", realFundsEnabled: false, xCalls: calls, processed: results.length,
+        results, sinceId: checkpoint.sinceId, startTime: checkpoint.startTime };
     },
   };
 }
