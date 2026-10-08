@@ -33,7 +33,8 @@ const authorizedProcessor = request => Boolean(processorSecret && typeof request
   createHash("sha256").update(request.headers.authorization).digest(), createHash("sha256").update(`Bearer ${processorSecret}`).digest()));
 const authStore = databaseUrl ? createPostgresStore(databaseUrl, "identity") : createFileStore(process.env.AUTH_DATA_FILE || join(root, "data", "identity.json"));
 const auth = createAuthService({ store: authStore, clientId: process.env.X_CLIENT_ID,
-  clientSecret: process.env.X_CLIENT_SECRET, origin: process.env.APP_ORIGIN });
+  clientSecret: process.env.X_CLIENT_SECRET, origin: process.env.APP_ORIGIN,
+  botHandle: process.env.X_BOT_HANDLE, tokenEncryptionKey: process.env.X_BOT_TOKEN_ENCRYPTION_KEY });
 const accountStore = databaseUrl ? createPostgresStore(databaseUrl, "accounts-sandbox") : createFileStore(process.env.ACCOUNT_DATA_FILE || join(root, "data", "accounts-sandbox.json"));
 const workerStore = databaseUrl ? createPostgresStore(databaseUrl, "x-worker") : createFileStore(process.env.WORKER_DATA_FILE || join(root, "data", "x-worker.json"));
 const receiptStore = databaseUrl ? createPostgresStore(databaseUrl, "deposit-evidence") : createFileStore(process.env.RECEIPT_DATA_FILE || join(root, "data", "deposit-evidence.json"));
@@ -114,11 +115,16 @@ async function handleRequest(request, response) {
 
   if (requestPath.startsWith("/api/ops/")) {
     if (!authorizedProcessor(request)) return json(response, 401, { ok: false, reason: "Processor authorization required." });
+    if (requestPath === "/api/ops/bot-status" && request.method === "GET") return json(response, 200, await auth.botStatus());
     if (requestPath === "/api/ops/process-x" && request.method === "POST") {
       if (!worker.configured) return json(response, 503, { ok: false, reason: "X processor is disabled or not configured." });
       return json(response, 200, await worker.run());
     }
     if (requestPath === "/api/ops/process-replies" && request.method === "POST") {
+      if (process.env.X_REPLY_ENABLED === "true" && auth.botConfigured) {
+        const token = await auth.botAccessToken();
+        return json(response, 200, await createXReplySender({ token, enabled: true, store: workerStore }).run());
+      }
       if (!replySender.configured) return json(response, 503, { ok: false, reason: "X reply sender is disabled or not configured." });
       return json(response, 200, await replySender.run());
     }
@@ -163,7 +169,9 @@ async function handleRequest(request, response) {
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Referrer-Policy", "no-referrer");
     if (requestPath === "/api/auth/me" && request.method === "GET") {
-      return json(response, 200, { configured: auth.configured, account: await auth.me(cookies.tagtip_session), realFundsEnabled: false });
+      const account = await auth.me(cookies.tagtip_session);
+      const isBot = account && account.username.toLowerCase() === String(process.env.X_BOT_HANDLE || "").toLowerCase();
+      return json(response, 200, { configured: auth.configured, account, botSetupAvailable: Boolean(isBot && auth.botConfigured), realFundsEnabled: false });
     }
     if (requestPath === "/api/auth/logout" && request.method === "POST") {
       if (!process.env.APP_ORIGIN || request.headers.origin !== process.env.APP_ORIGIN) return json(response, 403, { ok: false, reason: "Origin required." });
@@ -176,11 +184,20 @@ async function handleRequest(request, response) {
       response.setHeader("Set-Cookie", result.cookie);
       return response.writeHead(302, { Location: result.url }).end();
     }
+    if (requestPath === "/api/auth/x/bot-start" && request.method === "POST") {
+      if (!process.env.APP_ORIGIN || request.headers.origin !== process.env.APP_ORIGIN) return json(response, 403, { ok: false, reason: "Same-origin request required." });
+      const user = await auth.me(cookies.tagtip_session);
+      if (!user || user.username.toLowerCase() !== String(process.env.X_BOT_HANDLE || "").toLowerCase()) return json(response, 403, { ok: false, reason: "Sign in as the configured bot account first." });
+      if (!auth.botConfigured) return json(response, 503, { ok: false, reason: "Bot token encryption is not configured." });
+      const result = await auth.start({ bot: true });
+      response.setHeader("Set-Cookie", result.cookie);
+      return json(response, 200, { url: result.url });
+    }
     if (requestPath === "/api/auth/x/callback" && request.method === "GET") {
       try {
         const result = await auth.callback({ code: parsedUrl.searchParams.get("code"), nonce: parsedUrl.searchParams.get("state"), browser: cookies.tagtip_oauth });
         response.setHeader("Set-Cookie", result.cookies);
-        return response.writeHead(303, { Location: "/account.html?login=success" }).end();
+        return response.writeHead(303, { Location: result.bot ? "/account.html?bot=connected" : "/account.html?login=success" }).end();
       } catch {
         return json(response, 400, { ok: false, reason: "X login failed or expired. Please start again." });
       }

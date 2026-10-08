@@ -117,8 +117,13 @@ $("#devnetWithdrawForm").addEventListener("submit", event => { event.preventDefa
   key.complete();
 }); });
 $("#logout").addEventListener("click", () => run(async () => { await api("/api/auth/logout", {}); location.replace("account.html"); }));
+$("#connectBot").addEventListener("click", () => run(async () => {
+  const result = await api("/api/auth/x/bot-start", {});
+  location.assign(result.url);
+}));
 try {
   const session = await api("/api/auth/me");
+  $("#botSetup").hidden = !session.botSetupAvailable;
   if (session.account) {
     state = (await api("/api/account")).state; $("#workspace").hidden = false; $("#logout").hidden = false; render();
     notice("Signed in. All balances and withdrawals on this page are simulated.");
