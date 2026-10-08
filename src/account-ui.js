@@ -124,6 +124,11 @@ $("#connectBot").addEventListener("click", () => run(async () => {
 try {
   const session = await api("/api/auth/me");
   $("#botSetup").hidden = !session.botSetupAvailable;
+  if (session.botConnected) {
+    $("#botSetupTitle").textContent = "@tag_Tip is connected.";
+    $("#botSetupDetail").textContent = "Bot posting access is saved securely. Replies will only be sent when an operator enables and runs the reply worker.";
+    $("#connectBot").hidden = true;
+  }
   if (session.account) {
     state = (await api("/api/account")).state; $("#workspace").hidden = false; $("#logout").hidden = false; render();
     notice("Signed in. All balances and withdrawals on this page are simulated.");
