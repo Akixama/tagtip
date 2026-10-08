@@ -138,7 +138,9 @@ async function handleRequest(request, response) {
       return json(response, 200, { ok: true, mode: "sandbox" });
     }
     if (requestPath === "/api/ops/status" && request.method === "GET") {
-      return json(response, 200, { ok: true, workerConfigured: worker.configured, replySenderConfigured: replySender.configured,
+      const bot = await auth.botStatus();
+      return json(response, 200, { ok: true, workerConfigured: worker.configured,
+        replySenderConfigured: Boolean(process.env.X_REPLY_ENABLED === "true" && (replySender.configured || bot.connected)), bot,
         checkpoint: await workerStore.load(), realFundsEnabled: false });
     }
     if (requestPath === "/api/ops/queues" && request.method === "GET") {
@@ -171,7 +173,9 @@ async function handleRequest(request, response) {
     if (requestPath === "/api/auth/me" && request.method === "GET") {
       const account = await auth.me(cookies.tagtip_session);
       const isBot = account && account.username.toLowerCase() === String(process.env.X_BOT_HANDLE || "").toLowerCase();
-      return json(response, 200, { configured: auth.configured, account, botSetupAvailable: Boolean(isBot && auth.botConfigured), realFundsEnabled: false });
+      const bot = isBot ? await auth.botStatus() : null;
+      return json(response, 200, { configured: auth.configured, account, botSetupAvailable: Boolean(isBot && auth.botConfigured),
+        botConnected: Boolean(bot?.connected && bot.account.id === account.id), realFundsEnabled: false });
     }
     if (requestPath === "/api/auth/logout" && request.method === "POST") {
       if (!process.env.APP_ORIGIN || request.headers.origin !== process.env.APP_ORIGIN) return json(response, 403, { ok: false, reason: "Origin required." });
@@ -279,8 +283,10 @@ async function handleRequest(request, response) {
   }
 
   if (requestPath === "/api/health" && request.method === "GET") {
+    const bot = await auth.botStatus();
     return json(response, 200, { ok: true, service: "tagtip", storage: storageType, mode: "sandbox",
-      demoIngestionEnabled: Boolean(processorSecret), processorEnabled: worker.configured, replySenderEnabled: replySender.configured,
+      demoIngestionEnabled: Boolean(processorSecret), processorEnabled: worker.configured,
+      replySenderEnabled: Boolean(process.env.X_REPLY_ENABLED === "true" && (replySender.configured || bot.connected)),
       xLoginConfigured: auth.configured, realFundsEnabled: false });
   }
   if (requestPath === "/api/demo" && request.method === "GET") return json(response, 200, ledger.snapshot());
