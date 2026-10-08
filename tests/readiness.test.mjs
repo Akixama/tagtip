@@ -10,3 +10,9 @@ test("configuration report does not expose credentials or pretend to be live ver
   assert.equal(JSON.stringify(report).includes(secret), false);
   assert.equal(report.realFundsEnabled, false);
 });
+test("processor readiness accepts a UTC start time instead of a post ID", () => {
+  const report = readinessReport({ X_PROCESSOR_SECRET: "a".repeat(32), X_BEARER_TOKEN: "token",
+    X_BOT_USER_ID: "123", X_START_TIME: "2026-10-08T11:00:00Z" });
+  assert.equal(report.configuration.processor.configured, true);
+  assert.deepEqual(report.configuration.processor.missing, []);
+});

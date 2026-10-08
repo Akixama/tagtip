@@ -35,13 +35,15 @@ const authStore = databaseUrl ? createPostgresStore(databaseUrl, "identity") : c
 const auth = createAuthService({ store: authStore, clientId: process.env.X_CLIENT_ID,
   clientSecret: process.env.X_CLIENT_SECRET, origin: process.env.APP_ORIGIN,
   botHandle: process.env.X_BOT_HANDLE, tokenEncryptionKey: process.env.X_BOT_TOKEN_ENCRYPTION_KEY });
+const linkedBot = await auth.botStatus();
+const botId = linkedBot.connected ? linkedBot.account.id : process.env.X_BOT_USER_ID;
 const accountStore = databaseUrl ? createPostgresStore(databaseUrl, "accounts-sandbox") : createFileStore(process.env.ACCOUNT_DATA_FILE || join(root, "data", "accounts-sandbox.json"));
 const workerStore = databaseUrl ? createPostgresStore(databaseUrl, "x-worker") : createFileStore(process.env.WORKER_DATA_FILE || join(root, "data", "x-worker.json"));
 const receiptStore = databaseUrl ? createPostgresStore(databaseUrl, "deposit-evidence") : createFileStore(process.env.RECEIPT_DATA_FILE || join(root, "data", "deposit-evidence.json"));
 const depositVerifier = createDevnetDepositVerifier({ rpcUrl: process.env.SOLANA_RPC_URL,
   treasuryTokenAccount: process.env.DEVNET_TREASURY_TOKEN_ACCOUNT, treasuryOwner: process.env.DEVNET_TREASURY_OWNER });
-const worker = createXProcessor({ token: process.env.X_BEARER_TOKEN, botId: process.env.X_BOT_USER_ID,
-  botHandle: process.env.X_BOT_HANDLE, initialSinceId: process.env.X_START_SINCE_ID,
+const worker = createXProcessor({ token: process.env.X_BEARER_TOKEN, botId,
+  botHandle: process.env.X_BOT_HANDLE, initialSinceId: process.env.X_START_SINCE_ID, initialStartTime: process.env.X_START_TIME,
   enabled: process.env.X_PROCESSOR_ENABLED === "true", store: workerStore, appOrigin: process.env.APP_ORIGIN,
   async applyEvent(event) {
     const user = await auth.findId(event.senderId);
@@ -150,7 +152,7 @@ async function handleRequest(request, response) {
     if (requestPath === "/api/ops/queues" && request.method === "GET") {
       return json(response, 200, operationsSummary({ checkpoint: await workerStore.load(), accounts: await accountStore.load() }));
     }
-    if (requestPath === "/api/ops/readiness" && request.method === "GET") return json(response, 200, readinessReport());
+    if (requestPath === "/api/ops/readiness" && request.method === "GET") return json(response, 200, readinessReport({ ...process.env, X_BOT_USER_ID: botId }));
     if (requestPath === "/api/ops/verify-devnet-deposit" && request.method === "POST") {
       if (!depositVerifier.configured) return json(response, 503, { ok: false, reason: "Devnet treasury evidence verifier is not configured." });
       const body = await readJson(request);

@@ -84,3 +84,37 @@ test("preview reads once without applying events, saving, or enabling processing
   assert.equal(result.moreAvailable, true);
   assert.equal(result.stateChanged, false);
 });
+test("UTC start time excludes old mentions and becomes an ID checkpoint", async () => {
+  let saved, clock = Date.parse("2026-10-08T11:05:00Z");
+  const queries = [], applied = [];
+  const worker = createXProcessor({ token: "secret", botId: "99", botHandle: "TippOnSol",
+    initialStartTime: "2026-10-08T11:00:00Z", enabled: true,
+    now: () => clock, store: { load: async () => saved && structuredClone(saved), save: async state => { saved = structuredClone(state); } },
+    fetcher: async rawUrl => {
+      const url = new URL(rawUrl);
+      if (!url.pathname.includes("/mentions")) return { ok: true, json: async () => ({ data: { id: "2", username: "bob" } }) };
+      queries.push(url.search);
+      return { ok: true, json: async () => ({ data: [
+        { id: "102", author_id: "1", created_at: "2026-10-08T11:01:00Z", text: "@TippOnSol send $2 to @bob" },
+        { id: "101", author_id: "1", created_at: "2026-10-08T10:59:00Z", text: "@TippOnSol send $1 to @bob" },
+      ], meta: {} }) };
+    }, applyEvent: async event => { applied.push(event); return { status: "accepted", tipId: "tip-102" }; },
+  });
+  assert.equal(worker.previewConfigured, true);
+  const preview = await worker.preview();
+  assert.deepEqual(preview.candidates.map(item => item.postId), ["102"]);
+  assert.equal(saved, undefined);
+  assert.match(queries[0], /start_time=2026-10-08T11%3A00%3A00Z/);
+  await worker.run();
+  assert.deepEqual(applied.map(event => event.tweetId), ["102"]);
+  assert.equal(saved.sinceId, "102");
+  clock += 61_000;
+  await worker.run();
+  assert.match(queries.at(-1), /since_id=102/);
+  assert.equal(applied.length, 1);
+});
+test("invalid UTC start time fails closed", async () => {
+  const worker = createXProcessor({ token: "secret", botId: "99", initialStartTime: "2026-02-30T11:00:00Z" });
+  assert.equal(worker.previewConfigured, false);
+  await assert.rejects(worker.preview(), /not configured/);
+});
