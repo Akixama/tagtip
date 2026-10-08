@@ -61,3 +61,26 @@ test("processor fails closed without an explicit enabling flag", async () => {
   assert.equal(worker.configured, false);
   await assert.rejects(worker.run(), /disabled/);
 });
+test("preview reads once without applying events, saving, or enabling processing", async () => {
+  let reads = 0, writes = 0, applied = 0;
+  const worker = createXProcessor({ token: "secret", botId: "99", botHandle: "TippOnSol", initialSinceId: "100",
+    enabled: false, store: { load: async () => null, save: async () => { writes++; } },
+    applyEvent: async () => { applied++; }, fetcher: async url => {
+      reads++;
+      assert.equal(new URL(url).searchParams.get("max_results"), "10");
+      return { ok: true, json: async () => ({ data: [
+        { id: "102", author_id: "1", text: "@TippOnSol send $2 to @bob" },
+        { id: "101", author_id: "99", text: "@TippOnSol send $3 to @bob" },
+      ], meta: { next_token: "more" } }) };
+    },
+  });
+  assert.equal(worker.configured, false);
+  assert.equal(worker.previewConfigured, true);
+  const result = await worker.preview();
+  assert.equal(reads, 1);
+  assert.equal(writes, 0);
+  assert.equal(applied, 0);
+  assert.deepEqual(result.candidates, [{ postId: "102", senderId: "1", recipient: "@bob", amount: "2" }]);
+  assert.equal(result.moreAvailable, true);
+  assert.equal(result.stateChanged, false);
+});
